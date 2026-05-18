@@ -5,7 +5,7 @@ Training (Run on Google Colab):
         --data-dir /content/raf-db/DATASET/ \
         --output-dir /content/drive/MyDrive/Capstone_FER/models \
         --epochs-phase1 15 \
-        --epochs-phase2 20 \
+        --epochs-phase2 35 \
         --batch-size 32 \
         --seed 42
 """

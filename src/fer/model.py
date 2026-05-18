@@ -61,7 +61,7 @@ def unfreeze_top_blocks(backbone: Model) -> None:
     """
     unfreeze = False
     for layer in backbone.layers:
-        if "block6a_expand_conv" in layer.name:
+        if "block5a_expand_conv" in layer.name:
             unfreeze = True
         if unfreeze:
             layer.trainable = not isinstance(layer, layers.BatchNormalization)
