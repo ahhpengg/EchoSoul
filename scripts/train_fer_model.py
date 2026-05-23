@@ -68,6 +68,7 @@ def set_seeds(seed: int) -> None:
 
 def load_datasets(
     train_dir: Path,
+    val_dir: Path,
     test_dir: Path,
     batch_size: int,
     seed: int,
@@ -76,12 +77,8 @@ def load_datasets(
 
     common = dict(image_size=(300, 300), batch_size=batch_size, label_mode="int", seed=seed)
 
-    train_ds = tf.keras.utils.image_dataset_from_directory(
-        str(train_dir), validation_split=0.2, subset="training", **common
-    )
-    val_ds = tf.keras.utils.image_dataset_from_directory(
-        str(train_dir), validation_split=0.2, subset="validation", **common
-    )
+    train_ds = tf.keras.utils.image_dataset_from_directory(str(train_dir), **common)
+    val_ds = tf.keras.utils.image_dataset_from_directory(str(val_dir), **common)
     # shuffle=False so label collection during evaluation stays aligned with predictions.
     test_ds = tf.keras.utils.image_dataset_from_directory(
         str(test_dir), shuffle=False, **common
@@ -216,18 +213,20 @@ def main() -> None:
 
     data_dir = Path(args.data_dir)
     train_dir = data_dir / "train"
-    test_dir = data_dir / "test"
+    val_dir   = data_dir / "val"
+    test_dir  = data_dir / "test"
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"TensorFlow version : {tf.__version__}")
     print(f"GPU devices        : {tf.config.list_physical_devices('GPU')}")
     print(f"Train dir          : {train_dir}")
+    print(f"Val dir            : {val_dir}")
     print(f"Test dir           : {test_dir}")
     print(f"Output dir         : {output_dir}")
 
     # ---- Data ---------------------------------------------------------------
-    train_ds, val_ds, test_ds = load_datasets(train_dir, test_dir, args.batch_size, args.seed)
+    train_ds, val_ds, test_ds = load_datasets(train_dir, val_dir, test_dir, args.batch_size, args.seed)
     class_weights = compute_class_weights_from_dir(train_dir, NUM_CLASSES)
 
     print("\nClass weights (balanced):")
