@@ -1,8 +1,8 @@
-"""Two-phase EfficientNet-B3 training on RAF-DB.
+"""Two-phase EfficientNet-B3 training on AffectNet.
 
 Training (Run on Google Colab):
     !python scripts/train_fer_model.py \
-        --data-dir /content/raf-db/DATASET/ \
+        --data-dir /content/dataset/AffectNet/ \
         --output-dir /content/drive/MyDrive/Capstone_FER/models \
         --epochs-phase1 15 \
         --epochs-phase2 35 \
@@ -32,11 +32,11 @@ from sklearn.utils.class_weight import compute_class_weight
 # ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Train EfficientNet-B3 emotion classifier on RAF-DB.")
+    p = argparse.ArgumentParser(description="Train EfficientNet-B3 emotion classifier on AffectNet.")
     p.add_argument(
         "--data-dir",
         required=True,
-        help="Path to the RAF-DB DATASET/ folder (must contain train/ and test/ subdirs).",
+        help="Path to the AffectNet DATASET/ folder (must contain train/, val/ and test/ subdirs).",
     )
     p.add_argument(
         "--output-dir",
@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
         help="Directory where the model and artefacts will be saved.",
     )
     p.add_argument("--epochs-phase1", type=int, default=15, help="Max epochs for Phase 1 (default 15).")
-    p.add_argument("--epochs-phase2", type=int, default=20, help="Max epochs for Phase 2 (default 20).")
+    p.add_argument("--epochs-phase2", type=int, default=35, help="Max epochs for Phase 2 (default 35).")
     p.add_argument("--batch-size", type=int, default=32, help="Batch size for both phases (default 32).")
     p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility (default 42).")
     return p.parse_args()
