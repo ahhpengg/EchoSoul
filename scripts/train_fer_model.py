@@ -1,8 +1,8 @@
-"""Two-phase EfficientNet-B3 training on AffectNet.
+"""Two-phase EfficientNet-B3 training on RAF-DB+AffectNet.
 
 Training (Run on Google Colab):
     !python scripts/train_fer_model.py \
-        --data-dir /content/dataset/AffectNet/ \
+        --data-dir /content/dataset/DATASET5.0/ \
         --output-dir /content/drive/MyDrive/Capstone_FER/models \
         --epochs-phase1 15 \
         --epochs-phase2 35 \
@@ -32,11 +32,11 @@ from sklearn.utils.class_weight import compute_class_weight
 # ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Train EfficientNet-B3 emotion classifier on AffectNet.")
+    p = argparse.ArgumentParser(description="Train EfficientNet-B3 emotion classifier on RAF-DB+AffectNet.")
     p.add_argument(
         "--data-dir",
         required=True,
-        help="Path to the AffectNet DATASET/ folder (must contain train/, val/ and test/ subdirs).",
+        help="Path to the RAF-DB+AffectNet DATASET/ folder (must contain train/, val/ and test/ subdirs).",
     )
     p.add_argument(
         "--output-dir",
@@ -258,7 +258,7 @@ def main() -> None:
     print(f"Phase 1 best val_accuracy: {max(history1.history['val_accuracy']):.4f}")
 
     # ---- Phase 2 ------------------------------------------------------------
-    print("\n=== Phase 2: fine-tuning block6+ (BatchNorm frozen) ===")
+    print("\n=== Phase 2: fine-tuning block5+ (BatchNorm frozen) ===")
     unfreeze_top_blocks(backbone)
 
     # Recompile so the optimiser registers the newly trainable variables.

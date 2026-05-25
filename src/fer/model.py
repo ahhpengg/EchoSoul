@@ -52,7 +52,7 @@ def build_model(dropout: float = 0.3) -> tuple[Model, Model]:
 
 
 def unfreeze_top_blocks(backbone: Model) -> None:
-    """Unfreeze block6 and block7 of EfficientNetB3 for Phase 2 fine-tuning.
+    """Unfreeze block5, block6 and block7 of EfficientNetB3 for Phase 2 fine-tuning.
 
     BatchNormalization layers stay frozen (trainable=False) so their gamma/beta
     parameters do not receive gradient updates. BN running stats are also frozen
