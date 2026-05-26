@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Directory where the model and artefacts will be saved.",
     )
-    p.add_argument("--epochs-phase1", type=int, default=15, help="Max epochs for Phase 1 (default 15).")
+    p.add_argument("--epochs-phase1", type=int, default=20, help="Max epochs for Phase 1 (default 20).")
     p.add_argument("--epochs-phase2", type=int, default=35, help="Max epochs for Phase 2 (default 35).")
     p.add_argument("--batch-size", type=int, default=32, help="Batch size for both phases (default 32).")
     p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility (default 42).")
@@ -111,18 +111,31 @@ def compute_class_weights_from_dir(train_dir: Path, num_classes: int) -> dict[in
 # Callbacks
 # ---------------------------------------------------------------------------
 
-def make_callbacks(output_dir: Path, phase: int) -> list:
+def make_callbacks(output_dir: Path, phase: int, checkpoint_path: Path = None) -> list:
     import tensorflow as tf
 
-    return [
+    # Phase 2 gets more patience — allows recovery from temporary val dips.
+    patience = 5 if phase == 2 else 3
+
+    callbacks = [
         tf.keras.callbacks.EarlyStopping(
             monitor="val_accuracy",
-            patience=3,
+            patience=patience,
             restore_best_weights=True,
             verbose=1,
         ),
         tf.keras.callbacks.CSVLogger(str(output_dir / f"phase{phase}_log.csv")),
     ]
+    if checkpoint_path is not None:
+        callbacks.append(
+            tf.keras.callbacks.ModelCheckpoint(
+                filepath=str(checkpoint_path),
+                monitor="val_accuracy",
+                save_best_only=True,
+                verbose=1,
+            )
+        )
+    return callbacks
 
 
 # ---------------------------------------------------------------------------
@@ -270,12 +283,13 @@ def main() -> None:
             tf.keras.metrics.SparseTopKCategoricalAccuracy(k=2, name="top2_accuracy"),
         ],
     )
+    checkpoint_path = output_dir / "fer_model_checkpoint.keras"
     history2 = model.fit(
         train_ds,
         validation_data=val_ds,
         epochs=args.epochs_phase2,
         class_weight=class_weights,
-        callbacks=make_callbacks(output_dir, phase=2),
+        callbacks=make_callbacks(output_dir, phase=2, checkpoint_path=checkpoint_path),
         verbose=1,
     )
     print(f"Phase 2 best val_accuracy: {max(history2.history['val_accuracy']):.4f}")
