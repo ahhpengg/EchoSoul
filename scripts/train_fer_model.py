@@ -133,7 +133,8 @@ def make_callbacks(output_dir: Path, phase: int, checkpoint_path: Path = None) -
 
     callbacks = [
         tf.keras.callbacks.EarlyStopping(
-            monitor="val_accuracy",
+            monitor="val_loss",
+            mode="min",
             patience=patience,
             restore_best_weights=True,
             verbose=1,
@@ -144,7 +145,8 @@ def make_callbacks(output_dir: Path, phase: int, checkpoint_path: Path = None) -
         callbacks.append(
             tf.keras.callbacks.ModelCheckpoint(
                 filepath=str(checkpoint_path),
-                monitor="val_accuracy",
+                monitor="val_loss",
+                mode="min",
                 save_best_only=True,
                 verbose=1,
             )
