@@ -131,12 +131,22 @@ def make_callbacks(output_dir: Path, phase: int, checkpoint_path: Path = None) -
     # Phase 2 gets more patience — allows recovery from temporary val dips.
     patience = 5 if phase == 2 else 3
 
+    lr_patience = 1 if phase == 1 else 2
+    min_lr = 1e-6 if phase == 1 else 1e-7
+
     callbacks = [
         tf.keras.callbacks.EarlyStopping(
             monitor="val_loss",
             mode="min",
             patience=patience,
             restore_best_weights=True,
+            verbose=1,
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor="val_loss",
+            factor=0.5,
+            patience=lr_patience,
+            min_lr=min_lr,
             verbose=1,
         ),
         tf.keras.callbacks.CSVLogger(str(output_dir / f"phase{phase}_log.csv")),
@@ -291,17 +301,21 @@ def main() -> None:
                 tf.keras.metrics.SparseTopKCategoricalAccuracy(k=2, name="top2_accuracy"),
             ],
         )
+        phase1_checkpoint_path = output_dir / "fer_phase1_best.keras"
         history1 = model.fit(
             train_ds,
             validation_data=val_ds,
             epochs=args.epochs_phase1,
             class_weight=class_weights,
-            callbacks=make_callbacks(output_dir, phase=1),
+            callbacks=make_callbacks(output_dir, phase=1, checkpoint_path=phase1_checkpoint_path),
             verbose=1,
         )
-        print(f"Phase 1 best val_accuracy: {max(history1.history['val_accuracy']):.4f}")
+        print(f"Phase 1 best val_loss: {min(history1.history['val_loss']):.4f}")
 
-        # ---- Unfreeze for Phase 2 -------------------------------------------
+        # ---- Load best Phase 1 weights, then unfreeze for Phase 2 -----------
+        print(f"\nLoading best Phase 1 weights from {phase1_checkpoint_path}")
+        model = tf.keras.models.load_model(str(phase1_checkpoint_path), compile=False)
+        backbone = model.get_layer("efficientnetb3")
         unfreeze_top_blocks(backbone)
 
     # ---- Phase 2 ------------------------------------------------------------
@@ -324,7 +338,7 @@ def main() -> None:
         callbacks=make_callbacks(output_dir, phase=2, checkpoint_path=checkpoint_path),
         verbose=1,
     )
-    print(f"Phase 2 best val_accuracy: {max(history2.history['val_accuracy']):.4f}")
+    print(f"Phase 2 best val_loss: {min(history2.history['val_loss']):.4f}")
 
     # ---- Save model ---------------------------------------------------------
     model_path = output_dir / "fer_model.keras"
