@@ -4,7 +4,8 @@ import tensorflow as tf
 from tensorflow.keras import layers, Model
 
 NUM_CLASSES = 7
-INPUT_SHAPE = (300, 300, 3)
+INPUT_SHAPE = (300, 300, 1)            # grayscale input from the dataset loader
+BACKBONE_INPUT_SHAPE = (300, 300, 3)   # EfficientNetB3 needs 3 channels for ImageNet weights
 
 # Fixed label order matches RAF-DB folder indices 1–7 mapped to 0–6.
 EMOTION_LABELS = ["surprise", "fear", "disgust", "happy", "sad", "angry", "neutral"]
@@ -24,16 +25,21 @@ def build_model(dropout: float = 0.3) -> tuple[Model, Model]:
     backbone = tf.keras.applications.EfficientNetB3(
         include_top=False,
         weights="imagenet",
-        input_shape=INPUT_SHAPE,
+        input_shape=BACKBONE_INPUT_SHAPE,
         pooling=None,
     )
     backbone.trainable = False
 
     inputs = layers.Input(shape=INPUT_SHAPE, name="image")
 
+    # Replicate the single grayscale channel 3× so the ImageNet-pretrained backbone
+    # (which expects RGB) sees a valid 3-channel tensor. All three channels carry
+    # identical intensity information.
+    x = layers.Concatenate(axis=-1, name="gray_to_rgb")([inputs, inputs, inputs])
+
     # Augmentation — active only when training=True, no-op at inference.
     # Operates on [0, 255] images; value_range default matches this.
-    x = layers.RandomFlip("horizontal")(inputs)
+    x = layers.RandomFlip("horizontal")(x)
     x = layers.RandomRotation(0.028)(x)    # ±10 degrees
     x = layers.RandomZoom(0.1)(x)
     x = layers.RandomBrightness(0.1)(x)

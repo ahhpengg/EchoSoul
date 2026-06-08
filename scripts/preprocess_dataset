@@ -1,0 +1,23 @@
+import os
+from PIL import Image
+
+input_folder = "C:/Users/Acer/Documents/DATASET10.0/test/7"
+output_folder = "C:/Users/Acer/Documents/DATASET10.0/test/grayscale_7"
+
+os.makedirs(output_folder, exist_ok=True)
+
+valid_ext = (".jpg", ".jpeg", ".png", ".bmp")
+
+for filename in os.listdir(input_folder):
+    if not filename.lower().endswith(valid_ext):
+        continue
+
+    input_path = os.path.join(input_folder, filename)
+    img = Image.open(input_path).convert("L")
+
+    # RAF-DB aligned images are 100x100; keep original size, no resize
+    out_name = os.path.splitext(filename)[0] + ".jpg"
+    img.save(os.path.join(output_folder, out_name), quality=95)
+    print(f"Processed: {filename}")
+
+print("Done.")
