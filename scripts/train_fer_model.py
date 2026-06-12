@@ -1,8 +1,8 @@
-"""Two-phase EfficientNet-B3 training on RAF-DB+AffectNet.
+"""Two-phase EfficientNet-B3 training on RAF-DB.
 
 Training (Run on Google Colab):
     !python scripts/train_fer_model.py \
-        --data-dir /content/dataset/DATASET3.0/ \
+        --data-dir /content/dataset/DATASET10.0/ \
         --output-dir /content/drive/MyDrive/Capstone_FER/models \
         --epochs-phase1 25 \
         --epochs-phase2 35 \
@@ -11,7 +11,7 @@ Training (Run on Google Colab):
 
 Continue from checkpoint (if phase2 disconnected halfway)
     !python scripts/train_fer_model.py \
-        --data-dir /content/dataset/DATASET3.0 \
+        --data-dir /content/dataset/DATASET10.0 \
         --output-dir /content/drive/MyDrive/Capstone_FER/models \
         --epochs-phase2 35 \
         --batch-size 32 \
@@ -56,6 +56,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=32, help="Batch size for both phases (default 32).")
     p.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility (default 42).")
     p.add_argument(
+        "--mixup-alpha",
+        type=float,
+        default=0.2,
+        help="Alpha for Beta(α,α) MixUp sampling on training batches. Set 0.0 to disable (default 0.2).",
+    )
+    p.add_argument(
         "--resume-from",
         default=None,
         help="Path to a Phase 2 checkpoint (.keras) to resume from. Skips Phase 1 entirely.",
@@ -79,12 +85,36 @@ def set_seeds(seed: int) -> None:
 # Data loading
 # ---------------------------------------------------------------------------
 
+def mixup(images, labels, alpha: float):
+    """Apply MixUp to a single batch.
+
+    Samples one λ ~ Beta(α, α) per batch (standard practice), shuffles the batch
+    to create pairing, and linearly blends both the images and the one-hot labels.
+    Requires `label_mode="categorical"` upstream.
+    """
+    import tensorflow as tf
+
+    batch_size = tf.shape(images)[0]
+    g1 = tf.random.gamma(shape=[], alpha=alpha)
+    g2 = tf.random.gamma(shape=[], alpha=alpha)
+    lam = g1 / (g1 + g2)
+
+    perm = tf.random.shuffle(tf.range(batch_size))
+    shuffled_images = tf.gather(images, perm)
+    shuffled_labels = tf.gather(labels, perm)
+
+    mixed_images = lam * images + (1.0 - lam) * shuffled_images
+    mixed_labels = lam * labels + (1.0 - lam) * shuffled_labels
+    return mixed_images, mixed_labels
+
+
 def load_datasets(
     train_dir: Path,
     val_dir: Path,
     test_dir: Path,
     batch_size: int,
     seed: int,
+    mixup_alpha: float = 0.0,
 ):
     import tensorflow as tf
 
@@ -92,6 +122,7 @@ def load_datasets(
         image_size=(300, 300),
         batch_size=batch_size,
         label_mode="categorical",
+        color_mode="grayscale",
         seed=seed,
     )
 
@@ -103,6 +134,14 @@ def load_datasets(
     )
 
     autotune = tf.data.AUTOTUNE
+
+    # MixUp on training batches only — val/test must keep clean labels for metrics.
+    if mixup_alpha > 0:
+        train_ds = train_ds.map(
+            lambda x, y: mixup(x, y, mixup_alpha),
+            num_parallel_calls=autotune,
+        )
+
     return (
         train_ds.prefetch(autotune),
         val_ds.prefetch(autotune),
@@ -258,9 +297,13 @@ def main() -> None:
     print(f"Val dir            : {val_dir}")
     print(f"Test dir           : {test_dir}")
     print(f"Output dir         : {output_dir}")
+    print(f"MixUp alpha        : {args.mixup_alpha}  ({'enabled' if args.mixup_alpha > 0 else 'disabled'})")
 
     # ---- Data ---------------------------------------------------------------
-    train_ds, val_ds, test_ds = load_datasets(train_dir, val_dir, test_dir, args.batch_size, args.seed)
+    train_ds, val_ds, test_ds = load_datasets(
+        train_dir, val_dir, test_dir, args.batch_size, args.seed,
+        mixup_alpha=args.mixup_alpha,
+    )
 
     history1 = None
 
