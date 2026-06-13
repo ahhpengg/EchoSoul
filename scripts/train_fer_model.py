@@ -159,9 +159,9 @@ def make_callbacks(output_dir: Path, phase: int, checkpoint_path: Path = None) -
     import tensorflow as tf
 
     # Phase 2 gets more patience — allows recovery from temporary val dips.
-    patience = 5 if phase == 2 else 3
+    patience = 6 if phase == 2 else 3
 
-    lr_patience = 1 if phase == 1 else 2
+    lr_patience = 1 if phase == 1 else 3
     min_lr = 1e-6 if phase == 1 else 1e-7
 
     callbacks = [
