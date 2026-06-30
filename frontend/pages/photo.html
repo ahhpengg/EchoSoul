@@ -9,45 +9,13 @@
   <script src="../js/vendor/tailwind.js"></script>
   <script src="../js/tailwind-config.js"></script>
 </head>
-<body class="bg-background text-on-background min-h-screen font-body-md selection:bg-primary-container selection:text-on-primary-container overflow-hidden">
+<body data-page="photo" class="bg-background text-on-background min-h-screen font-body-md selection:bg-primary-container selection:text-on-primary-container overflow-x-hidden">
 
-  <!-- SideNavBar -->
-  <aside class="w-[280px] h-full fixed left-0 top-0 border-r border-white/10 backdrop-blur-xl shadow-sm bg-surface-container-low flex flex-col py-8 px-6 gap-stack-md z-30 overflow-y-auto">
-    <div class="flex items-center gap-4 mb-4">
-      <div class="w-10 h-10 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(183,109,255,0.2)]"><img src="../assets/img/logo.png" alt="MoodStream logo" class="w-full h-full object-contain"></div>
-      <div>
-        <h1 class="text-headline-md font-headline-md font-bold text-primary tracking-tight">MoodStream</h1>
-        <p class="text-label-sm font-label-sm text-on-surface-variant opacity-80">Emotional Discovery</p>
-      </div>
-    </div>
-    <nav class="flex flex-col mt-4 flex-grow gap-[2px]">
-      <div class="flex items-center justify-between mt-6 mb-2 pl-3 pr-1">
-        <p class="text-label-sm font-label-sm text-outline-variant uppercase tracking-wider">Playlists</p>
-        <button class="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-white/5 hover:text-primary transition-colors"><span class="material-symbols-outlined text-[20px]">add</span></button>
-      </div>
-      <div class="flex items-center justify-between px-3 py-2 mb-2 text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
-        <span class="material-symbols-outlined text-[20px]">search</span>
-        <div class="flex items-center gap-2"><span class="text-label-md font-label-md">Recents</span><span class="material-symbols-outlined text-[20px]">list</span></div>
-      </div>
-      <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant font-label-md hover:bg-white/5 transition-colors" href="#"><span class="material-symbols-outlined">sentiment_satisfied</span><span class="text-label-md font-label-md">Happy Songs</span></a>
-      <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant font-label-md hover:bg-white/5 transition-colors" href="#"><span class="material-symbols-outlined">sentiment_very_dissatisfied</span><span class="text-label-md font-label-md">Angry</span></a>
-      <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant font-label-md hover:bg-white/5 transition-colors" href="#"><span class="material-symbols-outlined">sentiment_neutral</span><span class="text-label-md font-label-md">Neutral</span></a>
-      <a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-on-surface-variant font-label-md hover:bg-white/5 transition-colors" href="#"><span class="material-symbols-outlined">mood_bad</span><span class="text-label-md font-label-md">Crying TT</span></a>
-    </nav>
-    <div class="mt-auto pt-6 pb-24"></div>
-  </aside>
+  <!-- Sidebar and back header are injected by js/chrome.js (no bottom player here) -->
 
-  <!-- Simplified header for the transactional page -->
-  <header class="fixed top-0 flex justify-between items-center h-16 px-gutter z-40 glass-panel right-0 w-[calc(100%-280px)]">
-    <a class="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors group" href="home.html">
-      <span class="material-symbols-outlined text-[20px] group-hover:-translate-x-1 transition-transform">arrow_back</span>
-      <span class="font-label-md text-label-md">Dashboard</span>
-    </a>
-    <div class="w-10"></div>
-  </header>
-
-  <!-- Main Scanner Canvas -->
-  <main class="h-screen w-full flex flex-col items-center justify-center px-4 md:px-gutter relative ml-[280px]">
+  <!-- Main Scanner Canvas (pt-24 clears the fixed header; min-h-screen lets a
+       short window scroll instead of clipping the viewfinder) -->
+  <main class="min-h-screen flex flex-col items-center justify-center px-4 md:px-gutter pt-24 pb-10 relative lg:ml-[280px]">
     <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none">
       <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary-container rounded-full blur-[150px] opacity-10"></div>
     </div>
@@ -56,7 +24,7 @@
       <!-- Header Info -->
       <div class="text-center flex flex-col gap-base items-center">
         <h1 class="text-headline-lg font-headline-lg md:text-headline-xl md:font-headline-xl text-on-surface">Taking Photo...</h1>
-        <p class="text-body-lg font-body-lg text-on-surface-variant">&nbsp;For a precise mood analysis:<br>- Position your face in the frame<br>- Remove any facial obstructions</p>
+        <p class="text-body-md font-body-md md:text-body-lg md:font-body-lg text-on-surface-variant">&nbsp;For a precise mood analysis:<br>- Position your face in the frame<br>- Remove any facial obstructions</p>
       </div>
 
       <!-- Camera Viewfinder -->
@@ -95,6 +63,7 @@
     </div>
   </main>
 
+  <script src="../js/chrome.js"></script>
   <script src="../js/photo.js"></script>
 </body>
 </html>

@@ -90,17 +90,17 @@ function hexToRgba(hex, alpha) {
 function trackRow(index, [title, artist, album, time], accent) {
   const el = document.createElement("div");
   el.className =
-    "grid grid-cols-[48px_minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1fr)_64px] gap-4 px-6 py-3 items-center group hover:bg-white/5 transition-colors cursor-pointer rounded-lg mx-2" +
+    "track-grid px-4 md:px-6 py-3 group hover:bg-white/5 transition-colors cursor-pointer rounded-lg mx-2" +
     (index === 1 ? " mt-1" : "");
   el.innerHTML = `
     <div class="text-center text-on-surface-variant group-hover:hidden">${index}</div>
     <div class="text-center text-primary hidden group-hover:flex items-center justify-center"><span class="material-symbols-outlined filled text-[20px]">play_arrow</span></div>
-    <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded flex items-center justify-center shadow-sm" style="background-color: ${hexToRgba(accent, 0.2)};"><span class="material-symbols-outlined text-[20px]" style="color: ${accent};">music_note</span></div>
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="w-10 h-10 rounded flex items-center justify-center shadow-sm shrink-0" style="background-color: ${hexToRgba(accent, 0.2)};"><span class="material-symbols-outlined text-[20px]" style="color: ${accent};">music_note</span></div>
       <div class="truncate"><p class="text-body-md font-body-md text-on-surface font-medium truncate"></p></div>
     </div>
     <div class="text-body-md font-body-md text-on-surface-variant truncate group-hover:text-on-surface transition-colors"></div>
-    <div class="text-body-md font-body-md text-on-surface-variant truncate"></div>
+    <div class="track-col-album text-body-md font-body-md text-on-surface-variant truncate"></div>
     <div class="text-right text-body-md font-body-md text-on-surface-variant font-medium"></div>`;
   // Assign text via textContent (children: 0 #, 1 play, 2 title-block, 3 artist, 4 album, 5 time).
   el.querySelector("p").textContent = title;

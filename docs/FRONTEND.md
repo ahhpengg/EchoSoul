@@ -58,7 +58,7 @@ frontend/
 └── js/
     ├── vendor/tailwind.js  ✅ vendored Tailwind Play build
     ├── tailwind-config.js  ✅ shared theme tokens
-    ├── ui.js               ✅ shared header-scroll behaviour
+    ├── chrome.js           ✅ shared page chrome (sidebar + top bar + bottom player), responsive drawer, nav wiring, header-scroll
     ├── home.js             ✅ hero zoom + manual-mood / scan navigation
     ├── mood.js             ✅ mood-card selection → loading
     ├── photo.js            ✅ capture → loading (webcam wiring pending)
@@ -68,10 +68,33 @@ frontend/
     ├── bridge.js           ⬜ wrapper for pywebview.api with timeout + error handling
     ├── auth_gate.js        ⬜ runs on index.html; routes to login / premium / home
     ├── camera.js           ⬜ webcam preview + capture
-    ├── playback.js         ⬜ Spotify SDK initialisation + playback control
-    ├── sidebar.js          ⬜ saved-playlists sidebar (live data)
+    ├── playback.js         ⬜ Spotify SDK initialisation + playback control (replaces the placeholder bottom player rendered by chrome.js)
+    ├── sidebar.js          ⬜ saved-playlists sidebar — live data (replaces the placeholder playlist list rendered by chrome.js)
     └── error_handler.js    ⬜ maps error codes to user-facing messages
 ```
+
+### Shared chrome & responsiveness
+
+The sidebar, top app bar and bottom player were duplicated verbatim in every
+page. They are now defined **once** in `js/chrome.js` and injected per page.
+
+- Each page sets `<body data-page="home|mood|photo|loading|result|error">`;
+  `chrome.js` reads it to decide which header to render (full app bar vs the
+  simplified "back" header on `photo.html`), whether to show the bottom player,
+  and whether to show the sidebar "Scan Emotion" button.
+- `chrome.js` is the **last** script before the page's own script and runs
+  synchronously during body parse, so the injected nodes exist (and are present
+  at `DOMContentLoaded`, so Tailwind JIT styles them) before page code runs.
+- Navigation is wired by event delegation on `[data-nav]` (home / scan / back /
+  forward / open-sidebar / close-sidebar). Controls with no backend yet
+  (search, notifications, sidebar playlist links, player transport) carry
+  `data-placeholder` and are no-ops for now.
+- **Responsive:** at `lg` (≥1024px) the layout is the fixed 280px sidebar + main
+  canvas. Below `lg` the sidebar becomes an off-canvas drawer toggled by the
+  header hamburger (with a dimming backdrop), the main column goes full width
+  (`lg:ml-[280px]` → `ml-0`), the mood-card grid restacks, the tracklist drops
+  its Album column (`.track-grid` / `.track-col-album` in `app.css`), and the
+  player hides the waveform + secondary controls. Target floor ≈ 700px wide.
 
 Each imported page's `<head>` uses this boilerplate (paths relative to `pages/`):
 

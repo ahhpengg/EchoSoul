@@ -3,7 +3,8 @@
  *
  * Static navigation only for this design import — no Python bridge calls yet
  * (see docs/FRONTEND.md for where the real detect_emotion / generate_playlist
- * calls will hook in later).
+ * calls will hook in later). The sidebar "Scan Emotion" button is wired by
+ * chrome.js; this file handles the page's own hero + manual-mood controls.
  */
 const hero = document.getElementById("camera-hero-section");
 const cameraImg = document.getElementById("local-camera-img");
@@ -19,19 +20,17 @@ if (hero && cameraImg) {
   });
 }
 
-document.getElementById("scan-cta")?.addEventListener("click", () => {
-  window.location.assign("photo.html");
-});
-
+// "Your Mood" opens the full manual-selection page.
 document.getElementById("manual-mood-btn")?.addEventListener("click", () => {
   window.location.assign("mood.html");
 });
 
+// The quick emotion chips are a shortcut: each one is already a specific
+// emotion, so skip the mood page and go straight through loading -> result.
 document.querySelectorAll(".mood-chip").forEach((chip) => {
   chip.addEventListener("click", () => {
-    if (chip.dataset.emotion) {
-      sessionStorage.setItem("preselected_mood", chip.dataset.emotion);
-    }
-    window.location.assign("mood.html");
+    sessionStorage.setItem("last_emotion", chip.dataset.emotion);
+    sessionStorage.setItem("emotion_source", "manual");
+    window.location.assign("loading.html");
   });
 });

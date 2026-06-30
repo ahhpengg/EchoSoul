@@ -106,3 +106,26 @@
   background: linear-gradient(180deg, rgba(221, 183, 255, 0.15) 0%, rgba(19, 27, 46, 0.8) 100%);
   backdrop-filter: blur(20px);
 }
+
+/* ------------------------------------------------------------------ *
+ * Responsive tracklist (home / result)
+ *
+ * One grid template shared by the header row and every track row so the
+ * columns line up. Below md the Album column (.track-col-album) is dropped to
+ * keep Title/Artist readable on a narrow window.
+ * ------------------------------------------------------------------ */
+.track-grid {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1.8fr) minmax(0, 1fr) 52px;
+  gap: 0.75rem;
+  align-items: center;
+}
+.track-col-album { display: none; }
+
+@media (min-width: 768px) {
+  .track-grid {
+    grid-template-columns: 48px minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1fr) 64px;
+    gap: 1rem;
+  }
+  .track-col-album { display: block; }
+}
