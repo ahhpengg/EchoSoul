@@ -13,7 +13,7 @@ Spotify deprecated `/audio-features`, `/audio-analysis`, `/recommendations`, `/r
 Implications:
 - We cannot fetch valence/energy/tempo for a track at runtime.
 - We must rely on pre-built dataset dumps containing these features (snapshotted before the deprecation).
-- The `/artists?ids=...` endpoint (which returns artist-level `genres`) is **not** affected; we use it for enrichment.
+- ⚠️ **Update (June 2026):** `/artists` genre data is **also gone** for this app — the batch endpoint returns 403 and the artist object no longer includes `genres`. Genre enrichment now uses **Last.fm** instead of Spotify (see Stage 3).
 - The Web Playback SDK is **not** affected; playback continues to work normally.
 
 ---
@@ -251,6 +251,15 @@ def parse_list_str(s):
 
 `scripts/enrich_artist_genres.py`. This is the long-running one.
 
+> ⚠️ **Redesigned June 2026 — Spotify → Last.fm.** Spotify removed artist genres for this app: the batch `GET /artists?ids=...` returns **403**, and even the single `GET /artists/{id}` no longer includes a `genres` field. The Spotify-based design in the subsections below is therefore **superseded**. The script now enriches via **Last.fm** `artist.getTopTags` (top tag = genre proxy). Key differences:
+> - **Source:** Last.fm, not Spotify. Needs `LASTFM_API_KEY` in `.env` (free: https://www.last.fm/api/account/create). No extra pip dependency (uses `requests`).
+> - **Keying:** by artist **name** (Last.fm has no Spotify-ID lookup), mapped back to `artist_id` for the merge.
+> - **No batching:** one artist per request, rate-limited ~4/s. Artists are processed in descending track-count order, so coverage rises fast (top 50k artists ≈ 88% of tracks) and the run is resumable/checkpointed.
+> - **Output columns:** `artist_id, genres, name, enriched_at` (no `popularity`).
+> - **Real counts:** ~140k unique artist_ids (not the ~400k the text below estimates).
+>
+> The subsections below are retained as a record of the original Spotify approach.
+
 ### Strategy
 
 1. Extract all unique `artist_id` values from `rf_normalised.csv` (~400k unique artists from 1.2M tracks).
@@ -474,7 +483,7 @@ For partial rebuilds (e.g. re-enrich because Spotify added new genres), the scri
 Before running `seed_database.py` on a non-empty DB:
 
 ```bash
-mysqldump --user=<u> --password emotion_music > backup_$(date +%Y%m%d).sql
+mysqldump --user=<u> --password echosoul > backup_$(date +%Y%m%d).sql
 ```
 
 The script should print a warning and require a `--confirm` flag if the `music` table is non-empty.

@@ -6,7 +6,9 @@ This file is the entry point for Claude Code when working on this repository. Re
 
 ## What this project is
 
-**AI-Based Emotion-Driven Music Recommendation System Using Face Analysis** — a desktop application that captures a user's facial photo via webcam, classifies their emotion using a fine-tuned EfficientNet-B3 CNN, then generates a Spotify-streamable playlist that matches the detected emotion.
+**EchoSoul** (full academic title: *AI-Based Emotion-Driven Music Recommendation System Using Face Analysis*) — a desktop application that captures a user's facial photo via webcam, classifies their emotion using a fine-tuned EfficientNet-B3 CNN, then generates a Spotify-streamable playlist that matches the detected emotion.
+
+> **Naming note:** The product is branded **EchoSoul**. The local MySQL database is named **`echosoul`** (set via `DB_NAME` in `.env`). The old name `emotion_music` was swept from the docs and code. **Exception:** the rule **table** is still named `emotion_music_mapping` (and its seed file `data/seed/emotion_music_mapping.sql`) — that is a schema identifier, deliberately left unchanged.
 
 This is a **BSc (Hons) Computer Science capstone project** at Sunway University. The owner is the sole developer. The project has two phases:
 
@@ -113,7 +115,7 @@ Implications:
 - We **cannot** call `/audio-features` at runtime to enrich tracks.
 - We **must** use pre-built dumps for valence/energy/tempo (see `docs/MUSIC_DATA.md`).
 - Spotify Web Playback SDK is **not** affected — playback still works.
-- `/artists?ids=...` (used for genre enrichment) is **not** affected — artist genres are still fetchable.
+- ⚠️ **Update (June 2026):** `/artists` genre data is **also gone** for this app — the batch `/artists?ids=...` endpoint returns 403, and the single-artist object no longer includes a `genres` field at all (verified empirically). Genre enrichment therefore uses **Last.fm** (`artist.getTopTags`, keyed by artist name), not Spotify. See `docs/MUSIC_DATA.md` Stage 3. Needs `LASTFM_API_KEY` in `.env`.
 - Do not write code that calls the deprecated endpoints, even in fallback paths.
 
 ### 3. Music data is local; playback is remote
@@ -210,9 +212,13 @@ Do not write enrichment code that has to complete in one shot. See `docs/MUSIC_D
 
 ## Status (update this section as the project progresses)
 
-- **Phase:** CP2 implementation starting May 2026.
-- **Current focus:** Project not yet started — empty repo.
-- **Next milestone:** Waterfall Phase 1 (Requirements Definition) → distribute SRS survey, refine functional/non-functional requirements. See `docs/BUILD_PLAN.md` week-by-week schedule.
+- **Phase:** CP2 — Phase 3 (Implementation & Unit Testing), as of June 2026.
+- **Completed so far:**
+  - **Frontend scaffold (Track F, partial):** pages, CSS, and JS for home / photo / mood / loading / result / error (not yet wired to a Python bridge).
+  - **FER model (Track C, partial):** EfficientNet-B3 architecture in `src/fer/model.py` plus training and dataset-preprocessing scripts. Inference wrapper + image pipeline still to do.
+  - **Track A — Database (DONE):** migration runner (`src/db/migrate.py`), connection pool (`src/db/connection.py`), schema migrations (`music`, `emotion_music_mapping`, `playlist`, `playlist_song`, `v_in_scope_music`), 5-row rule seed, indexes, passing tests (`tests/db/`). Migrations applied to the local `echosoul` database.
+- **Current focus:** Backend. Track A complete; next is **Track B (music data pipeline)** and/or **Track E (Spotify OAuth)**.
+- **Next milestone:** Load the merged music catalogue into the `echosoul` DB (Track B) so the rule-based recommender (Track D) can run against real data.
 
 ---
 

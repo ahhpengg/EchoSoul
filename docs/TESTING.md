@@ -134,11 +134,11 @@ Two strategies; pick one in week 3 of Phase 3:
 **Strategy A — separate test schema:**
 
 ```sql
-CREATE DATABASE emotion_music_test;
-GRANT ALL ON emotion_music_test.* TO 'emotion_music'@'localhost';
+CREATE DATABASE echosoul_test;
+GRANT ALL ON echosoul_test.* TO 'echosoul'@'localhost';
 ```
 
-Tests connect to `emotion_music_test`, run migrations, load the fixture catalogue, tear down. Slower but isolated.
+Tests connect to `echosoul_test`, run migrations, load the fixture catalogue, tear down. Slower but isolated.
 
 **Strategy B — SQLite for tests:**
 

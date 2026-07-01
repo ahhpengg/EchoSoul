@@ -9,7 +9,7 @@ The database is local (single-user, single-machine). No replication, no multi-te
 ## Connection
 
 - **Engine:** MySQL 8.x.
-- **Database name:** `emotion_music`.
+- **Database name:** `echosoul`.
 - **Charset:** `utf8mb4` (covers song titles in non-Latin scripts: K-pop hangul, J-pop kana, etc.). Collation `utf8mb4_unicode_ci`.
 - **Connection from Python:** `mysql-connector-python` (official, sync) — preferred over `PyMySQL` for binary protocol speed on bulk reads.
 
@@ -18,9 +18,9 @@ Credentials live in `.env`:
 ```env
 DB_HOST=localhost
 DB_PORT=3306
-DB_USER=emotion_music
+DB_USER=echosoul
 DB_PASSWORD=<set-locally>
-DB_NAME=emotion_music
+DB_NAME=echosoul
 ```
 
 A `.env.example` ships with placeholders; the real `.env` is gitignored.
@@ -34,9 +34,9 @@ The app uses a small connection pool (size 4) — enough for a single-user app, 
 from mysql.connector.pooling import MySQLConnectionPool
 
 _pool = MySQLConnectionPool(
-    pool_name="emotion_music_pool",
+    pool_name="echosoul_pool",
     pool_size=4,
-    host=..., port=..., user=..., password=..., database="emotion_music",
+    host=..., port=..., user=..., password=..., database="echosoul",
     charset="utf8mb4", collation="utf8mb4_unicode_ci",
     autocommit=False,
 )
@@ -337,9 +337,9 @@ For capstone scope: no automated backups. The data is reproducible from the data
 Manual backup before any risky operation (re-seeding, schema change in a new migration):
 
 ```bash
-mysqldump --user=emotion_music --password \
+mysqldump --user=echosoul --password \
           --single-transaction --quick \
-          emotion_music \
+          echosoul \
           > backup_$(date +%Y%m%d_%H%M%S).sql
 ```
 

@@ -1,5 +1,5 @@
 /*
- * Shared page chrome for MoodStream (sidebar + top app bar + bottom player).
+ * Shared page chrome for EchoSoul (sidebar + top app bar + bottom player).
  *
  * Why this exists: the sidebar, header and player used to be copy-pasted into
  * every page. They are now defined ONCE here and injected into each page, so a
@@ -51,11 +51,11 @@
     <aside id="app-sidebar" class="w-[280px] h-full fixed left-0 top-0 border-r border-white/10 backdrop-blur-xl shadow-sm bg-surface-container-low flex flex-col py-8 px-6 gap-stack-md z-40 lg:z-20 overflow-y-auto transition-transform duration-300 -translate-x-full lg:translate-x-0">
       <div class="flex items-center gap-4 mb-4">
         <a data-nav="home" class="w-10 h-10 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(183,109,255,0.2)] cursor-pointer shrink-0">
-          <img src="../assets/img/logo.png" alt="MoodStream logo" class="w-full h-full object-contain">
+          <img src="../assets/img/logo.png" alt="EchoSoul logo" class="w-full h-full object-contain">
         </a>
         <div class="flex-grow min-w-0">
-          <h1 class="text-headline-md font-headline-md font-bold text-primary tracking-tight">MoodStream</h1>
-          <p class="text-label-sm font-label-sm text-on-surface-variant opacity-80">Emotional Discovery</p>
+          <h1 class="text-headline-md font-headline-md font-bold text-primary tracking-tight">EchoSoul</h1>
+          <p class="text-label-sm font-label-sm text-on-surface-variant opacity-80">Music that echoes your soul</p>
         </div>
         <button data-nav="close-sidebar" aria-label="Close menu" class="lg:hidden w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-white/5 transition-colors shrink-0">
           <span class="material-symbols-outlined">close</span>

@@ -13,7 +13,7 @@ This doc has the most moving parts in the project. Read it carefully before touc
 | Stream audio tracks (playback) | Web Playback SDK (JavaScript, in the webview) | Yes — user OAuth |
 | Verify Premium account | `GET /v1/me` → check `product == "premium"` | Yes — user OAuth |
 | Get user's profile (display name, avatar) | `GET /v1/me` | Yes — user OAuth |
-| Enrich artist genres (data prep, one-off) | `GET /v1/artists?ids=...` | No — Client Credentials |
+| Enrich artist genres (data prep, one-off) | **Last.fm `artist.getTopTags`** (Spotify's `/artists` genres were removed for this app — see `docs/MUSIC_DATA.md` Stage 3) | No (Last.fm API key) |
 | **DO NOT USE: audio features** | `/v1/audio-features` (deprecated Nov 2024) | — |
 | **DO NOT USE: recommendations** | `/v1/recommendations` (deprecated Nov 2024) | — |
 | **DO NOT USE: related artists** | `/v1/artists/{id}/related-artists` (deprecated Nov 2024) | — |
@@ -36,7 +36,9 @@ Used at runtime, every user, in the main application. Authenticates the end user
 
 ### Flow 2: Client Credentials (for the enrichment script)
 
-Used **once**, offline, by the maintainer, in `scripts/enrich_artist_genres.py`. Authenticates the *app*, not a user. Used only to call public endpoints like `/artists`.
+Used **once**, offline, by the maintainer. Authenticates the *app*, not a user.
+
+> ⚠️ **Update (June 2026):** this flow is **no longer used for genre enrichment** — Spotify removed artist `genres` for this app (batch `/artists` returns 403; the artist object omits `genres`). `scripts/enrich_artist_genres.py` now uses the **Last.fm** API instead (see `docs/MUSIC_DATA.md` Stage 3). Client Credentials remains documented here only in case a future task needs another public Spotify endpoint.
 
 - Requires `client_secret`, but the secret stays in the maintainer's `.env` and is **never** shipped.
 - Uses Spotipy's `SpotifyClientCredentials`.

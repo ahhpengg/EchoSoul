@@ -25,7 +25,7 @@ Detailed week-by-week in CP1 §4.2.2.
 Things the owner should confirm or set up *before* implementation begins. Claude Code can help with these in advance.
 
 - [ ] **Spotify Developer App registered** with redirect URI `http://127.0.0.1:8888/callback` and Web API + Web Playback SDK scopes selected. Client ID and Client Secret saved.
-- [ ] **MySQL 8.x installed** locally. `emotion_music` database created. User with full privileges on that DB created.
+- [ ] **MySQL 8.x installed** locally. `echosoul` database created. User with full privileges on that DB created.
 - [ ] **Python 3.11** installed (not 3.12+ until TensorFlow confirms support). `pyenv` or `conda` recommended.
 - [ ] **RAF-DB dataset extracted** to a known directory. Confirm folder structure: `train/`, `test/`, with sub-folders per class label.
 - [ ] **Kaggle CLI configured** with API token (`~/.kaggle/kaggle.json`).
