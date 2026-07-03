@@ -123,6 +123,42 @@ The order `valence, energy, tempo` is chosen because valence has the tightest us
 
 Approx 600–800 MB for ~1.2M rows including indexes.
 
+### Random sampling key (migration 0004)
+
+`sample_key` is a **stored generated column** giving every track a fixed, uniform
+value in `[0, 1)` derived from `track_id`:
+
+```sql
+sample_key DOUBLE
+    AS (CONV(SUBSTRING(MD5(track_id), 1, 8), 16, 10) / 4294967295) STORED
+```
+
+It lets the recommender pull a *random, representative* slice of an emotion's
+candidate pool instead of the biased low-valence slice an unordered `LIMIT`
+returns (see `docs/RECOMMENDATION.md` Step 3). Derived from `track_id` rather
+than `RAND()` because:
+
+- **Deterministic → binlog-safe.** MySQL rejects `RAND()` in DDL/DML on a
+  binlogged table (`ER_BINLOG_UNSAFE_SYSTEM_FUNCTION`, error 1674); an MD5 of an
+  existing column is safe.
+- **Uniform and uncorrelated** with valence/energy/tempo — Spotify assigns
+  `track_id` independently of audio features — so any `sample_key` window is a
+  representative sample of the emotion's set.
+- **Generated**, so it is computed for existing and future rows automatically and
+  cannot be inserted into; the seed script needs no change.
+
+Backed by a composite index tuned for the hot-path query:
+
+```sql
+CREATE INDEX idx_music_sample_vet ON music (sample_key, valence, energy, tempo);
+```
+
+`sample_key` leads (for the random-start range scan, and so `ORDER BY sample_key`
+is served natively with no filesort); the three filter columns follow so they are
+applied by index-condition pushdown, keeping table lookups to the ~1000 rows kept.
+The recommender pins this index with `FORCE INDEX` because the optimizer otherwise
+misreads the wide `sample_key >= s` range as a full scan.
+
 ---
 
 ## Table: `emotion_music_mapping`
@@ -256,6 +292,7 @@ src/db/migrations/
 ├── 0001_initial_schema.sql
 ├── 0002_emotion_mapping_seed.sql
 ├── 0003_indexes.sql
+├── 0004_sample_key.sql
 └── …
 ```
 
@@ -285,15 +322,26 @@ Migrations are run at app startup. Failures are fatal (the app refuses to start 
 ### Recommendation query (hot path)
 
 ```sql
-SELECT track_id, track_name, artists, genre, valence, energy, tempo
-FROM music
+SELECT track_id, track_name, artists, album_name, genre,
+       valence, energy, tempo, duration_ms
+FROM music FORCE INDEX (idx_music_sample_vet)
 WHERE valence BETWEEN :v_min AND :v_max
   AND energy  BETWEEN :e_min AND :e_max
   AND tempo   BETWEEN :t_min AND :t_max
+  AND sample_key >= :start        -- random start point, chosen in Python
+ORDER BY sample_key
 LIMIT 1000;
 ```
 
-`EXPLAIN` should show `idx_music_vet` used with `range` access. If not, check that the index exists; rebuild if necessary.
+`:start` is a random float in `[0, 1)` picked per call, so the 1000-row window is
+a random, representative slice of the emotion's set rather than the low-valence
+rows an unordered `LIMIT` returns. `EXPLAIN` should show `idx_music_sample_vet`
+with `range` access and `Using index condition` — and **no `Using filesort`**
+(the filesort is what makes this query seconds-slow; it reappears the moment a
+tiebreaker like `ORDER BY sample_key, track_id` is added, because that column is
+not in the index). `FORCE INDEX` is required: without it the optimizer misreads
+the wide `sample_key` range and picks a full scan. See `docs/RECOMMENDATION.md`
+Step 3 for the wrap-around top-up when `:start` lands near 1.0.
 
 The recommender then randomly samples N tracks from this 1000-row candidate pool in Python. Doing the random sampling in SQL with `ORDER BY RAND()` is **forbidden** — it's O(N) over the candidate set and disastrous at 1.2M rows even with the WHERE clause.
 

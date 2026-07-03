@@ -65,39 +65,71 @@ The rule table is seeded once and effectively read-only at runtime (see `docs/DA
 
 ### Step 3 — Build the candidate pool
 
+A naïve `... WHERE <ranges> LIMIT 1000` looks right but is quietly broken: with no
+`ORDER BY`, MySQL walks the `(valence, energy, tempo)` index from the low end and
+returns the **1000 lowest-valence** matches. For `happy` that means valence pinned
+at ~0.66 — the ~96,000 genuinely happy tracks above it are never reachable. The
+pool must be a *random* slice of the emotion's set, not the first index page.
+
+We get that from `sample_key` (a stored generated column; see `docs/DATABASE.md`):
+every track has a fixed, uniform value in `[0, 1)` that is uncorrelated with the
+audio features. Pick a random start point and read the window above it:
+
 ```python
+rng   = random.Random(seed)   # None in prod (system-seeded), fixed in tests
+start = rng.random()          # Stage 1: a random entry point in [0, 1)
+
 candidates = db.fetchall("""
     SELECT track_id, track_name, artists, album_name, genre,
            valence, energy, tempo, duration_ms
-    FROM v_in_scope_music
+    FROM music FORCE INDEX (idx_music_sample_vet)
     WHERE valence BETWEEN %s AND %s
       AND energy  BETWEEN %s AND %s
       AND tempo   BETWEEN %s AND %s
+      AND sample_key >= %s
+    ORDER BY sample_key
     LIMIT %s
-""", (
-    rule["valence_min"], rule["valence_max"],
-    rule["energy_min"],  rule["energy_max"],
-    rule["tempo_min"],   rule["tempo_max"],
-    CANDIDATE_POOL_LIMIT,
-))
+""", (*range_params, start, CANDIDATE_POOL_LIMIT))
 ```
 
-Where `CANDIDATE_POOL_LIMIT = 1000`. Reasoning:
-- 1000 is large enough that random sampling produces meaningful variety across calls.
-- 1000 is small enough that the entire candidate set fits in memory (each row is ~100 bytes; 1000 rows ≈ 100 KB).
-- Pulling 1000 and sampling client-side is *vastly* faster than `ORDER BY RAND() LIMIT 25` server-side.
+Notes that matter:
+- **Query the base table with `FORCE INDEX`, not the view.** The optimizer misreads
+  the wide `sample_key >= start` range as a full scan (seconds slow); pinning
+  `idx_music_sample_vet (sample_key, valence, energy, tempo)` makes it a range scan
+  that filters valence/energy/tempo in-index and stops at 1000 rows (~60–100 ms).
+- **`ORDER BY sample_key` with no tiebreaker.** The index provides this order
+  natively (no filesort). It stays deterministic anyway because InnoDB appends the
+  primary key to every secondary-index entry, so tied `sample_key` values have a
+  stable total order. Adding `, track_id` *breaks* this — that column isn't in the
+  index, so MySQL falls back to a filesort over the whole range (seconds slow).
+- **Wrap-around top-up.** If `start` lands near 1.0 the window above it is short,
+  so top up from the low end (`sample_key < start`, disjoint, no de-dup) to keep
+  the pool ~1000. This only triggers in the top ~1% of start values.
 
-Index `idx_music_vet` on `(valence, energy, tempo)` makes this query fast (target < 200 ms).
+Where `CANDIDATE_POOL_LIMIT = 1000`. Reasoning:
+- 1000 is large enough that Stage 2 produces meaningful variety, and large enough
+  relative to the playlist that two nearby `start` values (overlapping windows)
+  still yield near-disjoint playlists — see Step 4.
+- 1000 is small enough that the candidate set fits in memory (~100 KB) and the
+  index scan stays fast.
 
 ### Step 4 — Random sample
 
 ```python
-import random
-
-rng = random.Random(seed)  # seeded if seed is not None, else seeded by system time
 N = min(size, len(candidates))
-return rng.sample(candidates, N)
+return rng.sample(candidates, N)   # Stage 2: draw the playlist from the window
 ```
+
+Two stages of randomness, both driven by the same seeded `rng`:
+- **Stage 1 (`start`)** chooses *which* random 1000-track window of the emotion's
+  set to look at — this is what gives session-to-session variety across the whole
+  feature range.
+- **Stage 2 (`sample`)** chooses *which* `size` tracks from that window.
+
+Stage 2 is not redundant: it's what protects against two calls landing on nearby
+`start` values. Even if their 1000-track windows were *identical*, two independent
+`size`-track draws overlap by only `size² / 1000` tracks on average (< 1 track at
+the default size of 25). So heavy window overlap still yields different playlists.
 
 `random.Random()` instances are independent of the global random state. This is important: tests can pass `seed=42` for deterministic output without affecting any other random-using code in the system.
 
@@ -201,17 +233,18 @@ See `docs/TESTING.md`.
 
 ## Performance budget
 
-| Operation | Target | Notes |
-|---|---|---|
-| Rule lookup (Step 2) | < 10 ms | 5-row table, indexed PK |
-| Candidate query (Step 3) | < 200 ms | Composite index `idx_music_vet` |
-| Random sampling (Step 4) | < 5 ms | 1000 → 25, in-memory |
-| **Total** | **< 250 ms** | |
+| Operation | Target | Measured | Notes |
+|---|---|---|---|
+| Rule lookup (Step 2) | < 10 ms | — | 5-row table, indexed PK |
+| Candidate query (Step 3) | < 200 ms | ~60–100 ms | `idx_music_sample_vet`, pinned with `FORCE INDEX` |
+| Random sampling (Step 4) | < 5 ms | — | 1000 → 25, in-memory |
+| **Total** | **< 250 ms** | ~60–110 ms | first (cold) call ~250 ms |
 
 If Step 3 exceeds 500 ms in practice, check:
-- Is `idx_music_vet` present? `SHOW INDEX FROM music;`
-- Is MySQL using it? `EXPLAIN` should show `type = range`, `key = idx_music_vet`.
-- Is the query plan caching cold? First query after server start is slower; warm up.
+- Is `idx_music_sample_vet` present? `SHOW INDEX FROM music;`
+- Is MySQL using it? `EXPLAIN` should show `type = range`, `key = idx_music_sample_vet`, `Using index condition`.
+- **Is there a `Using filesort`?** If so the query is sorting the whole matching range before `LIMIT` — the usual cause is an `ORDER BY sample_key, <other>` tiebreaker or a dropped `FORCE INDEX`. Order by `sample_key` alone and keep the hint.
+- Is the query plan cache cold? First query after server start is slower; warm up.
 
 ---
 
