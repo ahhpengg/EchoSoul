@@ -1,6 +1,7 @@
 absl-py==2.4.0
 astunparse==1.6.3
 attrs==26.1.0
+backports.tarfile==1.2.0
 black==26.5.1
 certifi==2026.5.20
 cffi==2.0.0
@@ -18,12 +19,17 @@ grpcio==1.82.0
 h5py==3.14.0
 idna==3.18
 ImageIO==2.37.3
+importlib_metadata==9.0.0
 iniconfig==2.3.0
+jaraco.classes==3.4.0
+jaraco.context==6.1.2
+jaraco.functools==4.5.0
 jax==0.10.1
 jaxlib==0.10.1
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 keras==3.15.0
+keyring==25.7.0
 kiwisolver==1.5.0
 lazy-loader==0.5
 libclang==18.1.1
@@ -35,6 +41,7 @@ matplotlib==3.11.0
 mdurl==0.1.2
 mediapipe==0.10.35
 ml_dtypes==0.5.4
+more-itertools==11.1.0
 mypy_extensions==1.1.0
 mysql-connector-python==9.7.0
 namex==0.1.0
@@ -63,6 +70,7 @@ pytest-cov==7.1.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 pytokens==0.4.1
+pywin32-ctypes==0.2.3
 redis==8.0.1
 referencing==0.37.0
 rembg==2.0.76
@@ -86,3 +94,4 @@ tzdata==2026.2
 urllib3==2.7.0
 Werkzeug==3.1.8
 wrapt==2.2.2
+zipp==4.1.0

@@ -54,12 +54,12 @@ The maintainer (the student) creates a single Spotify app at https://developer.s
 2. "Create app":
    - Name: `EmotionMusicRec`
    - Description: capstone project, brief
-   - **Redirect URI:** `http://127.0.0.1:8888/callback`
-     - Spotify rejects `http://localhost` in newer dashboard versions but accepts `http://127.0.0.1`. Use the IP form.
-     - The port (8888) is fixed; the local OAuth callback server binds to it.
+   - **Redirect URI:** `http://127.0.0.1:8888/echosoul-callback` — register this exact value.
+     - Spotify requires the **`127.0.0.1` IP literal with a port**. `http://localhost` and port-less forms (`http://127.0.0.1/...`) are both rejected with *"This redirect URI is not secure"* (verified in the dashboard).
+     - The **port** (`8888`) and **path** (`/echosoul-callback`) must match `SPOTIFY_REDIRECT_URI` in `.env` byte-for-byte. The path is freely customisable; the host and scheme are not.
    - APIs used: tick **Web API** and **Web Playback SDK**.
-3. Copy the **Client ID** into `.env` (`SPOTIPY_CLIENT_ID`).
-4. Copy the **Client Secret** into `.env` (`SPOTIPY_CLIENT_SECRET`). Used **only** by the enrichment script, not by the desktop app.
+3. Copy the **Client ID** into `.env` (`SPOTIFY_CLIENT_ID`).
+4. Copy the **Client Secret** into `.env` (`SPOTIFY_CLIENT_SECRET`). Used **only** by the enrichment script, not by the desktop app.
 
 **Important:** Spotify apps default to *Development Mode*. In Development Mode, only the maintainer's Spotify account (and up to 25 additional users explicitly invited via the dashboard) can authenticate. This is fine for a capstone — invite the supervisor and any test users. To support arbitrary users would require a *Quota Extension Request*, which Spotify reviews manually and which is out of scope.
 
@@ -103,17 +103,16 @@ SPOTIFY_SCOPES = [
 │  Python backend  │←─────────────────────────────────── │   API    │
 └────────┬─────────┘                                      │  layer   │
          │                                                └──────────┘
-         │  3. SpotifyPKCE generates PKCE verifier+challenge,
-         │     builds the authorize URL with redirect_uri,
-         │     starts a tiny local HTTP server on 127.0.0.1:8888,
-         │     opens the URL in the user's default browser
+         │  3. We bind our own tiny HTTP server on 127.0.0.1:8888,
+         │     SpotifyPKCE builds the authorize URL (verifier+challenge+state),
+         │     open the URL in the user's default browser
          ▼
 ┌──────────────────────────┐  4. User logs into Spotify,
 │ Spotify accounts.spotify │      grants the scopes
 │         .com             │
 └────────┬─────────────────┘
          │
-         │  5. Browser redirected to http://127.0.0.1:8888/callback?code=...
+         │  5. Browser redirected to http://127.0.0.1:8888/echosoul-callback?code=...&state=...
          ▼
 ┌──────────────────┐
 │ Local HTTP server │  6. Captures `code`, exchanges it for tokens via PKCE
@@ -138,45 +137,56 @@ SPOTIFY_SCOPES = [
 ### Implementation outline
 
 ```python
-# src/spotify/auth.py
-import webbrowser
+# src/spotify/auth.py  (as-built — the module carries the full docstrings)
+import os, secrets, webbrowser
 from spotipy.oauth2 import SpotifyPKCE
 
-REDIRECT_URI = "http://127.0.0.1:8888/callback"
+REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/echosoul-callback")
 CACHE_HANDLER = KeyringCacheHandler()  # see below
 
-def get_pkce_manager() -> SpotifyPKCE:
+def _pkce_manager() -> SpotifyPKCE:
     return SpotifyPKCE(
-        client_id=os.environ["SPOTIPY_CLIENT_ID"],
+        client_id=os.environ["SPOTIFY_CLIENT_ID"],   # .env var name; PKCE needs no secret
         redirect_uri=REDIRECT_URI,
         scope=" ".join(SPOTIFY_SCOPES),
         cache_handler=CACHE_HANDLER,
-        open_browser=False,    # we'll open it manually for clarity
+        open_browser=False,      # we drive the browser + callback ourselves
     )
 
-def start_login_flow() -> str:
-    """Opens browser to Spotify, returns URL the user is now on. Blocks until callback received."""
-    auth = get_pkce_manager()
-    url = auth.get_authorize_url()
-    webbrowser.open(url)
-    # Spotipy's built-in local server handles the callback.
-    # See SpotifyOAuth.get_access_token() with as_dict=True for details.
-    token_info = auth.get_access_token(as_dict=True)
-    return token_info  # already cached by CACHE_HANDLER
+def start_login_flow() -> dict:
+    """Blocks until the OAuth callback returns. Result is JSON-serialisable."""
+    try:
+        with _CallbackServer(CALLBACK_HOST, CALLBACK_PORT, CALLBACK_PATH) as server:
+            auth = _pkce_manager()
+            state = secrets.token_urlsafe(16)
+            webbrowser.open(auth.get_authorize_url(state=state))
+            code, error = server.wait_for_code(state, LOGIN_TIMEOUT_SECONDS)
+            if error:
+                return {"success": False, "error": error}
+            auth.get_access_token(code=code, check_cache=False)   # exchange + cache
+            return {"success": True, "error": None}
+    except OSError as exc:       # fixed callback port already in use
+        return {"success": False, "error": f"port {CALLBACK_PORT} busy: {exc}"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
 ```
+
+> **Why our own callback server (not Spotipy's built-in):** Spotipy's local server only starts *when the redirect URI has a port*, but its convenience path gives us no control over the callback page or CSRF `state` handling. We register a **fixed-port** loopback URI with a **custom path** (`/echosoul-callback`), bind our own `_CallbackServer`, serve a branded "you can close this tab" page, and validate `state`. Spotify's dashboard **requires the explicit `127.0.0.1` IP and a port** — `localhost` and port-less forms are rejected as "not secure" (verified in the dashboard), so a dynamic/port-less redirect is not possible.
+
+> **API note (spotipy 2.26, verified empirically):** `SpotifyPKCE.get_access_token(code=None, check_cache=True)` has **no `as_dict` argument** (removed) and returns the access-token *string*; the full token dict is written to the cache handler as a side effect. Passing `check_cache=False` forces exchange of the fresh `code` even if a stale token is cached. Env var is `SPOTIFY_CLIENT_ID` (per `.env.example`), not `SPOTIPY_CLIENT_ID`.
 
 ### Token cache: store in OS keychain
 
 Don't write Spotify tokens to a plain file. Use `keyring`:
 
 ```python
-# src/spotify/keyring_cache.py
+# src/spotify/keyring_cache.py  (abridged — see the module for the file fallback)
 import json
 import keyring
 from spotipy.cache_handler import CacheHandler
 
 class KeyringCacheHandler(CacheHandler):
-    SERVICE = "EmotionMusicRec"
+    SERVICE = "EchoSoul"          # shows up in Windows Credential Manager
     USERNAME = "spotify_token"
 
     def get_cached_token(self):
@@ -186,7 +196,15 @@ class KeyringCacheHandler(CacheHandler):
     def save_token_to_cache(self, token_info):
         keyring.set_password(self.SERVICE, self.USERNAME,
                              json.dumps(token_info))
+
+    def delete_cached_token(self):   # used by auth.logout()
+        ...
 ```
+
+The as-built handler wraps every keyring call in a `try/except KeyringError`
+and, on failure (no Secret Service backend), falls back to a `0o600` JSON file
+under `~/.echosoul/`. On the owner's Windows machine the backend is
+`WinVaultKeyring` (Credential Locker), so the fallback never triggers.
 
 `keyring` uses:
 - Windows: Credential Locker
@@ -201,10 +219,16 @@ If `keyring` fails (e.g. headless Linux without Secret Service), fall back to a 
 
 ```python
 def get_valid_access_token() -> str:
-    auth = get_pkce_manager()
-    token_info = auth.get_access_token(as_dict=True)  # refreshes if needed
+    auth = get_pkce_manager(open_browser=False)
+    token_info = auth.get_cached_token()  # reads cache, refreshes if near expiry
+    if not token_info:
+        raise RuntimeError("No Spotify session; call start_login_flow() first.")
     return token_info["access_token"]
 ```
+
+`SpotifyPKCE.get_cached_token()` reads the stored token via the cache handler
+and refreshes it (using the refresh token) when it is within 60 s of expiry —
+without ever opening a browser. It returns `None` when nothing is cached.
 
 This is called immediately before any operation that needs a fresh token — including immediately before yielding the token to JavaScript for the Web Playback SDK.
 
@@ -212,7 +236,7 @@ This is called immediately before any operation that needs a fresh token — inc
 
 ```python
 def logout():
-    KEYRING.delete_password("EmotionMusicRec", "spotify_token")
+    CACHE_HANDLER.delete_cached_token()   # removes from keychain (service "EchoSoul")
     # Frontend then reloads the login page
 ```
 
@@ -449,7 +473,8 @@ All return JSON-serialisable types or raise — the API layer never returns Pyth
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| OAuth flow opens browser, returns to app, "login failed" | Redirect URI in app code doesn't match dashboard registration | Make sure both are `http://127.0.0.1:8888/callback`, byte-exact |
+| OAuth flow opens browser, returns to app, "login failed" | Redirect URI in `.env` doesn't match dashboard registration | Make sure both are `http://127.0.0.1:8888/echosoul-callback`, byte-exact |
+| Dashboard: "This redirect URI is not secure" | Used `localhost` or omitted the port | Use the `127.0.0.1` IP literal **with** a port, e.g. `http://127.0.0.1:8888/echosoul-callback` |
 | Browser shows "INVALID_CLIENT" | Wrong `client_id` in `.env` | Re-copy from dashboard |
 | SDK loads but no audio plays | Free account | The Premium check should have caught this; surface clearly |
 | SDK loads, "ready" fires, then "not_ready" immediately | OAuth scope missing `streaming` | Add scope, re-login |
