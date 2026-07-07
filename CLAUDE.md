@@ -212,10 +212,10 @@ Do not write enrichment code that has to complete in one shot. See `docs/MUSIC_D
 
 ## Status (update this section as the project progresses)
 
-- **Phase:** CP2 — Phase 3 (Implementation & Unit Testing), as of June 2026.
+- **Phase:** CP2 — Phase 3 (Implementation & Unit Testing), as of July 2026.
 - **Completed so far:**
   - **Frontend scaffold (Track F, partial):** pages, CSS, and JS for home / photo / mood / loading / result / error (not yet wired to a Python bridge).
-  - **FER model (Track C, partial):** EfficientNet-B3 architecture in `src/fer/model.py` plus training and dataset-preprocessing scripts. Inference wrapper + image pipeline still to do.
+  - **Track C — FER (DONE):** trained EfficientNet-B3 model dropped in (`models/fer_model.keras`, 86.68% 7-class / 87.62% 5-in-scope). Grayscale architecture (`src/fer/model.py`) + training script (`scripts/train_fer_model.py`); runtime image pipeline (`src/fer/image_pipeline.py` — MediaPipe Tasks `FaceLandmarker` eye-alignment + square crop, same landmark topology as `scripts/align_facial_images`, exactly-one-face gate, blur/dark/bright quality checks); inference + out-of-scope wrapper (`src/fer/inference.py`); tests in `tests/fer/`. The as-built training setup diverged from the original plan (grayscale `[0,255]` input, categorical focal loss, MixUp, block4+ unfreeze) — `docs/FER_MODEL.md` and `docs/IMAGE_PIPELINE.md` were rewritten to match. Local inference runs on `tensorflow==2.21.0` + `mediapipe==0.10.35` (installed; `requirements.txt` regenerated). Face detection uses the Tasks `FaceLandmarker` API (needs `models/face_landmarker.task`) because mediapipe 0.10.35 removed the legacy `solutions` API. All 22 `tests/fer` pass, including an end-to-end happy-face photo → "happy" prediction.
   - **Track A — Database (DONE):** migration runner (`src/db/migrate.py`), connection pool (`src/db/connection.py`), schema migrations (`music`, `emotion_music_mapping`, `playlist`, `playlist_song`, `v_in_scope_music`), 5-row rule seed, indexes, passing tests (`tests/db/`). Migrations applied to the local `echosoul` database.
 - **Current focus:** Backend. Track A complete; next is **Track B (music data pipeline)** and/or **Track E (Spotify OAuth)**.
 - **Next milestone:** Load the merged music catalogue into the `echosoul` DB (Track B) so the rule-based recommender (Track D) can run against real data.

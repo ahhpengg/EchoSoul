@@ -31,7 +31,7 @@ Bias toward unit tests. Each module's pure functions should have multiple tests 
 | Module | Coverage focus | Key tests |
 |---|---|---|
 | `src/fer/image_pipeline.py` | Every error path + happy path | decode failures, 0-face, multi-face, blur, dark, bright, valid |
-| `src/fer/emotion_model.py` | Inference correctness with fixture image | predict known-happy image; in-scope filter; out-of-scope handling |
+| `src/fer/inference.py` | Inference correctness with fixture image | predict known-happy image; in-scope filter; out-of-scope handling |
 | `src/music/recommender.py` | Determinism + rule coverage | one test per emotion; seed determinism; pool exhaustion |
 | `src/music/playlists.py` | CRUD operations | create, load, update, delete |
 | `src/spotify/auth.py` | Mocked Spotipy flow | login success, token refresh, logout clears keyring |

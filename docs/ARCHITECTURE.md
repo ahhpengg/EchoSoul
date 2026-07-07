@@ -30,7 +30,7 @@ This doc is the big-picture overview. For module-level details, follow the cross
 │                         │  │  ┌────────────▼──────────────┐ │  │    │
 │                         │  │  │  fer/                      │ │  │    │
 │                         │  │  │  - image_pipeline.py       │ │  │    │
-│                         │  │  │  - emotion_model.py        │ │  │    │
+│                         │  │  │  - inference.py            │ │  │    │
 │                         │  │  └────────────┬──────────────┘ │  │    │
 │                         │  │  ┌────────────▼──────────────┐ │  │    │
 │                         │  │  │  music/                    │ │  │    │
@@ -149,7 +149,7 @@ User clicks "Take Photo"
     4. Resize to 300×300, normalise to [-1, 1] (EfficientNet preprocess_input)
     5. Quality check: Laplacian variance (blur) + brightness histogram
        - Fail → return {"error": "low_quality"}
-  → fer.emotion_model.predict(image_tensor) → (emotion_label, confidence)
+  → fer.inference.predict(image_tensor) → (emotion_label, confidence)
     - If emotion_label in {fear, disgust} → return {"error": "out_of_scope", "detected": label}
     - Else → continue
   → music.recommender.generate_playlist(emotion_label)

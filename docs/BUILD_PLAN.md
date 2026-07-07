@@ -145,10 +145,10 @@ See `docs/MUSIC_DATA.md`.
 |---|---|
 | C1. Image pipeline (decode → detect → preprocess → quality) | `src/fer/image_pipeline.py` + tests |
 | C2. Model architecture builder | `src/fer/model.py` (build_model function) |
-| C3. Training script (phase 1 + phase 2) | `scripts/train_emotion_model.py` |
-| C4. Training run | `models/emotion_model.keras`, `models/confusion_matrix.png`, etc. |
-| C5. Inference wrapper | `src/fer/emotion_model.py` (load + predict) |
-| C6. Out-of-scope filter | `src/fer/emotion_model.py` (predict_in_scope) |
+| C3. Training script (phase 1 + phase 2) | `scripts/train_fer_model.py` |
+| C4. Training run | `models/fer_model.keras`, `models/confusion_matrix.png`, etc. |
+| C5. Inference wrapper | `src/fer/inference.py` (load + predict) |
+| C6. Out-of-scope filter | `src/fer/inference.py` (predict_in_scope) |
 | C7. Unit tests with fixture image | `tests/fer/test_*.py` |
 
 **Critical path:** C4 (training) requires a GPU and takes 1–3 hours. Plan a Colab session or local GPU run mid-week 4.

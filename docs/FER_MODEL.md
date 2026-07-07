@@ -4,53 +4,82 @@ Facial Emotion Recognition model: training, fine-tuning strategy, and inference.
 
 This doc covers the *model* layer. For the image preprocessing that produces inputs to this model, see `docs/IMAGE_PIPELINE.md`.
 
+> **Status:** the model is **trained and shipped** — `models/fer_model.keras`. Achieved **86.29 %** test accuracy across 7 classes and **86.61 %** on the 5 in-scope classes (targets: ≥ 80 % / ≥ 85 %). The training was done on Google Colab; only the local inference + image pipeline run on the owner's machine. This doc records the **as-built** setup, which diverged from the original CP1 plan in several places (grayscale input, focal loss, MixUp, deeper unfreeze). Those divergences are called out inline.
+
 ---
 
 ## At a glance
 
 | Aspect | Choice |
 |---|---|
-| Base architecture | EfficientNet-B3 (TensorFlow / Keras) |
-| Pretrained weights | ImageNet |
-| Training dataset | RAF-DB (Real-world Affective Faces Database) |
-| Training classes | 7 (happy, surprised, sad, angry, neutral, fear, disgust) |
-| Application-layer scope | 5 (happy, surprised, sad, angry, neutral) — fear & disgust trigger out-of-scope error |
-| Input size | 300 × 300 × 3 |
-| Input normalisation | `tf.keras.applications.efficientnet.preprocess_input` (scales to [-1, 1]) |
-| Classification head | Global Average Pooling → Dropout → Dense (7, softmax) |
-| Training strategy | Two-phase transfer learning (head only, then partial unfreeze) |
-| Target validation accuracy | ≥ 80% on RAF-DB test split (achievable per Setiaputri et al. 2025 reporting 84.47%) |
-| Persisted artefact | `models/emotion_model.keras` (single-file Keras v3 format) |
+| Base architecture | EfficientNet-B3 (TensorFlow / Keras 3, TF 2.21 / Keras 3.15) |
+| Pretrained weights | ImageNet (`include_top=False`, `pooling=None`) |
+| Training dataset | RAF-DB **+ AffectNet disgust** (~17,360 images) |
+| Training classes | 7 (surprise, fear, disgust, happy, sad, angry, neutral) |
+| Application-layer scope | 5 (happy, surprised, sad, angry, neutral) — fear & disgust trigger the out-of-scope error |
+| Input | **300 × 300 × 1 grayscale**, float32 in **[0, 255]** |
+| Input normalisation | **None externally** — EfficientNet-B3 normalises internally; the model also replicates the 1 gray channel to 3 for the RGB backbone |
+| Classification head | Global Average Pooling → Dropout(0.3) → Dense(7, softmax) |
+| Loss | `CategoricalFocalCrossentropy(gamma=2.0, alpha=0.25, label_smoothing=0.1)` |
+| Labels | one-hot (`label_mode="categorical"`) |
+| Augmentation | model-layer flip / rotation / zoom / brightness / contrast **+ MixUp (α=0.2)** on the `tf.data` pipeline |
+| Training strategy | Two-phase transfer learning (head only, then unfreeze block4→block7) |
+| Split | 80 / 10 / 10 stratified, seed 42 (test = 1,736 images) |
+| Persisted artefact | **`models/fer_model.keras`** (single-file Keras v3 format) |
+| Result | 7-class **0.8629**, 5-in-scope **0.8661** |
+
+**Files:**
+- Architecture builder: `src/fer/model.py` (`build_model`, `unfreeze_top_blocks`).
+- Training script: `scripts/train_fer_model.py`.
+- Inference wrapper: `src/fer/inference.py`.
+- Dataset preprocessing (offline, one-off): `scripts/grayscale_facial_image` (RAF-DB), `scripts/align_facial_images` (AffectNet disgust).
 
 ---
 
 ## Why EfficientNet-B3 (not VGG, ResNet, or B0)
 
-Already justified in the CP1 planning doc §2.1.2.2 and §3.8. Summary:
+Justified in the CP1 planning doc §2.1.2.2 and §3.8. Summary:
 
 - **Vs. VGG16:** EfficientNet-B3 has fewer parameters, faster inference, higher accuracy on FER benchmarks.
-- **Vs. ResNet50:** EfficientNet-B3 outperforms ResNet50 on FER2013 in published comparisons (84.47% vs ~70%).
-- **Vs. EfficientNet-B0:** B3 has higher accuracy; B0 is lighter and faster but the accuracy gap matters for a capstone that's judged on results. Inference at CPU still completes in < 1 s for B3 — acceptable.
-- **Vs. larger (B4–B7):** Diminishing returns. Larger models need much more training data and longer training time; RAF-DB has ~30k images, which fits B3's capacity well.
+- **Vs. ResNet50:** EfficientNet-B3 outperforms ResNet50 on FER benchmarks in published comparisons.
+- **Vs. EfficientNet-B0:** B3 has higher accuracy; B0 is lighter/faster but the accuracy gap matters for a capstone judged on results. CPU inference for B3 still completes in < 1 s — acceptable.
+- **Vs. larger (B4–B7):** Diminishing returns for the dataset size; B3 fits well.
 
-If during CP2 the B3 model is genuinely too slow on the target machine, swap to B0 as a fallback. This must be documented in the report.
+If during CP2 the B3 model is genuinely too slow on the target machine, swap to B0 as a fallback and document it in the report.
 
 ---
 
-## Dataset preparation (RAF-DB)
+## Dataset
 
-### What RAF-DB ships with
+### Composition (as built)
 
-- **Total images:** ~30,000 facial images.
-- **Annotation:** 7 basic emotion labels (1–7 indexing in their original file format).
-- **Split:** Train (~12,271 images) / Test (~3,068 images) per the official split.
-- **Format:** Cropped and aligned faces, varying resolutions but standardised to ~100 × 100 by the dataset providers (the "aligned" subfolder).
+The training set is **RAF-DB plus additional *disgust* images sourced from AffectNet**. Disgust is the rarest RAF-DB class, so it was topped up to give the minority class more signal. All 7 classes are trained; fear & disgust are filtered out **at the application layer**, not at training time (see "Why train 7, serve 5").
 
-### Label mapping (RAF-DB → our codebase)
+| Folder | Emotion | Train | Val | Test | Total |
+|---|---|---|---|---|---|
+| 1 | surprise | 1275 | 160 | 160 | 1595 |
+| 2 | fear | 282 | 35 | 35 | 352 |
+| 3 | disgust | 2497 | 312 | 312 | 3121 |
+| 4 | happy | 4725 | 590 | 590 | 5905 |
+| 5 | sad | 1940 | 243 | 243 | 2426 |
+| 6 | angry | 689 | 86 | 86 | 861 |
+| 7 | neutral | 2480 | 310 | 310 | 3100 |
+| | **Total** | **13888** | **1736** | **1736** | **17360** |
 
-The original RAF-DB labels are integers 1–7. Map them to string labels internally for clarity:
+- **Split:** 80 / 10 / 10, **stratified by class**, reproducible via seed 42. The three splits are materialised into `train/`, `val/`, and `test/` sub-folders (one class-numbered folder each) so `image_dataset_from_directory` can read them directly.
+- **Test split is untouched** during training and used once for final evaluation.
 
-| RAF-DB index | Our label | In scope for music rec? |
+### Label mapping (folder index → our label)
+
+Folder indices 1–7 map to labels **in this fixed order**, which is also the softmax output order:
+
+```python
+# src/fer/model.py
+EMOTION_LABELS = ["surprise", "fear", "disgust", "happy", "sad", "angry", "neutral"]
+IN_SCOPE = {"surprise", "happy", "sad", "angry", "neutral"}
+```
+
+| Folder | Our label | In scope for music rec? |
 |---|---|---|
 | 1 | surprise | ✅ |
 | 2 | fear | ❌ out-of-scope |
@@ -60,143 +89,130 @@ The original RAF-DB labels are integers 1–7. Map them to string labels interna
 | 6 | angry | ✅ |
 | 7 | neutral | ✅ |
 
-The model outputs a 7-element softmax in this order:
-```python
-EMOTION_LABELS = ["surprise", "fear", "disgust", "happy", "sad", "angry", "neutral"]
-IN_SCOPE = {"surprise", "happy", "sad", "angry", "neutral"}
-```
+The order is fixed so the persisted model stays portable. **Do not reorder** without retraining.
 
-The order is fixed to RAF-DB's index order so the persisted model is portable.
+### Offline preprocessing of the training images
 
-### Preprocessing during training
+Both datasets were converted to **grayscale, aligned face crops** so the two sources look alike and match the webcam pipeline at inference time:
 
-1. Load image as RGB.
-2. Resize to 300 × 300 (RAF-DB aligned faces are ~100 × 100; upscaling for B3's native input size is fine — the model was pretrained at this resolution).
-3. Apply `tf.keras.applications.efficientnet.preprocess_input` — this scales pixel values into [-1, 1] per channel.
-4. Data augmentation (training only):
-   - Random horizontal flip
-   - Random rotation ±10°
-   - Random brightness ±10%
-   - Random zoom ±10%
-   - No vertical flip (faces are not symmetric vertically)
-5. Validation/test set: no augmentation, just resize + normalise.
+- **RAF-DB** — `scripts/grayscale_facial_image`: the RAF-DB "aligned" crops are already face-centred, so this just converts them to grayscale (`PIL.Image.convert("L")`) at their native resolution. `image_dataset_from_directory` resizes to 300 × 300 on load.
+- **AffectNet disgust** — `scripts/align_facial_images`: grayscale → **MediaPipe FaceMesh** eye-line alignment (rotate so the eyes are horizontal) → **square crop** around the face-oval landmarks (+1 % margin, out-of-bounds padded white 255) → resize 300 × 300 (LANCZOS). The output deliberately mimics a RAF-DB aligned crop.
 
-Implementation: use `tf.keras.utils.image_dataset_from_directory` to load, then chain a `tf.keras.Sequential` augmentation block as the first part of the model. This makes augmentation run on GPU and serialise correctly with the model.
+> **Why this matters for inference:** the runtime webcam pipeline (`docs/IMAGE_PIPELINE.md`) reuses the `align_facial_images` algorithm exactly, so the images the model sees in production match the ones it was trained on. Earlier a `bg_removal` script flooded the background with gray-128; that was **dropped** because only disgust used it, which would have created a train/inference distribution mismatch (and a spurious "gray background ⇒ disgust" shortcut) for the in-scope classes.
+
+### Input format
+
+The model's input is **grayscale, `(300, 300, 1)`, float32 in `[0, 255]`**:
+
+- `image_dataset_from_directory(..., color_mode="grayscale")` yields `(H, W, 1)` uint8 tensors in `[0, 255]`.
+- The model **replicates the single channel to 3** internally (`Concatenate` layer) because the ImageNet backbone expects RGB.
+- **No external `preprocess_input`, no `/255.0`.** `tf.keras.applications.EfficientNetB3` includes its own normalisation layer and expects raw `[0, 255]` values. Applying `preprocess_input` or `/255.0` on top would double-normalise and collapse accuracy. (This inverts the original plan, which called for external `preprocess_input` — that was for an RGB `[-1, 1]` setup we no longer use.)
 
 ### Class imbalance
 
-RAF-DB is **heavily imbalanced** — *happy* dominates (~38% of training samples), *disgust* and *fear* are smallest (~3–4% each). Handle this:
+RAF-DB is heavily imbalanced (happy: 4,725 vs. fear: 282 in train). Handled with **Categorical Focal Loss**, not class weights:
 
-**Option A (preferred):** Compute class weights with `sklearn.utils.class_weight.compute_class_weight('balanced', ...)` and pass to `model.fit(class_weight=...)`.
-
-**Option B:** Oversample minority classes via `tf.data.Dataset.sample_from_datasets` with explicit weights.
-
-**Do not** use simple oversampling that duplicates minority images without augmentation — that overfits the rare classes.
-
-The class weighting approach is simpler and works well. Document the per-class weights in the report.
-
-### Train / validation / test splits
-
-- RAF-DB ships with an official train/test split. Honour it.
-- Carve a validation set from the official **train** set: 80% train / 20% validation, stratified by class.
-- Final test accuracy is reported on the **official test** set, untouched.
+- `tf.keras.losses.CategoricalFocalCrossentropy(gamma=2.0, alpha=0.25, label_smoothing=0.1)`.
+  - **gamma=2.0** — down-weights easy, well-classified examples so the optimiser spends gradient on hard / minority-class samples.
+  - **alpha=0.25** — balancing factor offsetting majority-class dominance.
+- `model.fit(class_weight=...)` is **deliberately omitted.** Stacking explicit class weights on top of focal loss is redundant (both target the same imbalance signal) and makes the effective per-class weighting hard to reason about.
+- Labels are **one-hot** (`label_mode="categorical"`), which `CategoricalFocalCrossentropy` and MixUp both require.
 
 ---
 
-## Model architecture (Keras code outline)
+## Model architecture
+
+Implemented in `src/fer/model.py`. Outline:
 
 ```python
-import tensorflow as tf
-from tensorflow.keras import layers, Model
-
 NUM_CLASSES = 7
-INPUT_SHAPE = (300, 300, 3)
+INPUT_SHAPE = (300, 300, 1)            # grayscale input from the dataset loader
+BACKBONE_INPUT_SHAPE = (300, 300, 3)   # EfficientNetB3 needs 3 channels for ImageNet weights
 
-def build_model(dropout: float = 0.3) -> Model:
-    # Input + augmentation block (executed only in training mode)
+def build_model(dropout: float = 0.3) -> tuple[Model, Model]:
+    backbone = tf.keras.applications.EfficientNetB3(
+        include_top=False, weights="imagenet",
+        input_shape=BACKBONE_INPUT_SHAPE, pooling=None,
+    )
+    backbone.trainable = False  # frozen for Phase 1
+
     inputs = layers.Input(shape=INPUT_SHAPE, name="image")
-    x = layers.RandomFlip("horizontal")(inputs)
-    x = layers.RandomRotation(0.04)(x)               # ±10° ≈ 10/360 = 0.028 of a full turn — but Keras uses fraction of 2π; 10° = 10/360 ≈ 0.028. Use 0.04 to be generous.
+    # Replicate the single gray channel 3× for the RGB-pretrained backbone.
+    x = layers.Concatenate(axis=-1, name="gray_to_rgb")([inputs, inputs, inputs])
+
+    # Augmentation — active only when training=True, no-op at inference.
+    x = layers.RandomFlip("horizontal")(x)
+    x = layers.RandomRotation(0.028)(x)    # ±10°
     x = layers.RandomZoom(0.1)(x)
     x = layers.RandomBrightness(0.1)(x)
+    x = layers.RandomContrast(0.1)(x)
 
-    # EfficientNet-B3 backbone with ImageNet weights, no top
-    backbone = tf.keras.applications.EfficientNetB3(
-        include_top=False,
-        weights="imagenet",
-        input_tensor=x,
-        pooling=None,
-    )
-    backbone.trainable = False  # frozen for phase 1
+    # training=False keeps BatchNorm in inference mode in BOTH phases; unfrozen
+    # conv weights still receive gradients (training= only affects BN/Dropout).
+    x = backbone(x, training=False)
 
-    # Custom classification head
-    x = layers.GlobalAveragePooling2D(name="gap")(backbone.output)
+    x = layers.GlobalAveragePooling2D(name="gap")(x)
     x = layers.Dropout(dropout, name="head_dropout")(x)
     outputs = layers.Dense(NUM_CLASSES, activation="softmax", name="emotion_softmax")(x)
-
-    return Model(inputs=inputs, outputs=outputs, name="emotion_efficientnetb3")
+    return Model(inputs, outputs, name="emotion_efficientnetb3"), backbone
 ```
 
 Notes:
-- `RandomBrightness` requires TF ≥ 2.11. Confirm the project's TF version supports it; if not, use `tf.image.random_brightness` inside a `Lambda` layer.
-- Augmentation layers do nothing during inference (`training=False`), so we get free augmentation during `fit()` and clean inference.
+- `build_model()` returns **`(model, backbone)`** — pass `backbone` to `unfreeze_top_blocks()` before Phase 2.
+- Augmentation runs as **model layers**, so it's active during `fit()` and automatically disabled at inference. No vertical flip (faces are not vertically symmetric).
+- **MixUp** is *not* a model layer — it's applied on the `tf.data` training pipeline (`mixup()` in `scripts/train_fer_model.py`, one `λ ~ Beta(α, α)` per batch). Val/test keep clean labels for honest metrics.
 
 ---
 
 ## Two-phase fine-tuning strategy
 
-This is the standard transfer-learning recipe for EfficientNet on a domain-shifted dataset (RAF-DB faces vs. ImageNet objects).
+Standard transfer-learning recipe for EfficientNet on a domain-shifted dataset (faces vs. ImageNet objects).
 
 ### Phase 1 — head only
 
-- **Goal:** Let the new classification head learn emotion-discriminative features without disrupting pretrained ImageNet weights.
-- **Frozen:** entire `backbone` (set `backbone.trainable = False`).
-- **Trainable:** only the GAP + Dropout + Dense head.
+- **Frozen:** entire backbone (`backbone.trainable = False`).
+- **Trainable:** GAP + Dropout + Dense head only (~13,888 params).
 - **Optimiser:** Adam, `learning_rate = 1e-3`.
-- **Loss:** `categorical_crossentropy` (one-hot labels) or `sparse_categorical_crossentropy` (integer labels) — pick one consistently.
-- **Metrics:** `accuracy`, `top_2_accuracy` (the latter is useful diagnostic info — many FER confusions are sad↔neutral).
-- **Epochs:** 10–15, with `EarlyStopping(patience=3, restore_best_weights=True, monitor="val_accuracy")`.
-- **Batch size:** 32. If GPU memory permits, try 64.
-- **Class weights:** Yes (from `compute_class_weight`).
-- **Expected val accuracy after phase 1:** 60–70%.
+- **Loss:** categorical focal crossentropy (gamma 2.0, alpha 0.25, label smoothing 0.1).
+- **Metrics:** `accuracy`, `top-2 accuracy` (`TopKCategoricalAccuracy(k=2)`) — top-2 is a useful diagnostic since many FER confusions are sad↔neutral.
+- **LR schedule:** `ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=1, min_lr=1e-6)`.
+- **Early stop:** `EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True)`.
+- **Max epochs:** 35 (stopped at 22).
+- **Purpose:** let the randomly initialised head stabilise before any backbone weights are disturbed.
 
 ### Phase 2 — partial unfreeze
 
-- **Goal:** Adapt mid- and high-level features to faces while keeping low-level (edge/texture) features intact.
-- **Frozen:** the first ~70% of EfficientNet-B3's blocks (block1–block5 roughly). Unfreeze block6 and block7 + the head.
-  - In code: iterate `backbone.layers`, set `trainable = True` only for layers after a certain index. EfficientNet-B3's MBConv blocks are named clearly (`block6a_...`, `block7a_...`). Unfreeze everything from `block6a_expand_conv` onward.
-- **Crucial:** Set `BatchNormalization` layers to `trainable = False` even within unfrozen blocks. Updating BN stats on a small dataset destroys pretrained statistics. Loop:
-  ```python
-  for layer in backbone.layers:
-      if isinstance(layer, layers.BatchNormalization):
-          layer.trainable = False
-  ```
-- **Optimiser:** Adam, `learning_rate = 1e-5` (lower by 100× from phase 1 — critical to not destroy pretrained weights).
-- **Epochs:** 15–25, same early-stopping.
-- **Expected val accuracy after phase 2:** 78–85%.
+- **Unfrozen:** EfficientNet-B3 **block4, 5, 6, 7** (~top 50 % of the backbone) — everything from `block4a_expand_conv` onward. (The original plan unfroze only block6+; the deeper unfreeze was found to train better here.)
+- **BatchNorm stays frozen** throughout: `unfreeze_top_blocks()` sets every `BatchNormalization` layer `trainable = False`, **and** the backbone is always called with `training=False`, so BN running stats are never updated on the small dataset.
+- **Optimiser:** Adam, `learning_rate = 1e-5` (100× lower than Phase 1 — critical to not corrupt pretrained weights).
+- **Loss:** same categorical focal crossentropy.
+- **LR schedule:** `ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=3, min_lr=1e-7)`.
+- **Early stop:** `EarlyStopping(monitor="val_loss", patience=6, restore_best_weights=True)`.
+- **Max epochs:** 55 (ran the full 55).
+- **Starts from** the best Phase 1 checkpoint (`fer_phase1_best.keras`).
+- **Purpose:** adapt mid/high-level features to facial expressions while preserving low-level edge/texture features.
 
-### Why two phases (not one-shot end-to-end)
+### Why two phases (not one-shot)
 
-If you unfreeze everything from the start with a high learning rate, the random-initialised head produces large gradients that propagate back and corrupt the pretrained backbone. Two-phase training avoids this. This is standard practice — Tan & Le 2019 (the EfficientNet paper) and the Keras transfer-learning tutorial both recommend it.
+Unfreezing everything from the start with a high LR lets the random head's large gradients corrupt the pretrained backbone. Two-phase training avoids this. Standard practice per Tan & Le 2019 and the Keras transfer-learning tutorial.
 
 ---
 
-## Training script outline
+## Training script
 
-Single script: `scripts/train_emotion_model.py`. Should:
+`scripts/train_fer_model.py` (runs on Colab GPU). It:
 
-1. Parse args: `--data-dir`, `--output-dir`, `--epochs-phase1`, `--epochs-phase2`, `--batch-size`, `--seed`.
-2. Load RAF-DB train/val/test as `tf.data.Dataset` objects.
-3. Build model (Phase 1 config: backbone frozen).
-4. Train Phase 1. Save checkpoint after best epoch.
-5. Reload best Phase 1 weights, unfreeze block6+, train Phase 2.
-6. Evaluate on test set; print per-class precision/recall + confusion matrix.
-7. Save final model as `models/emotion_model.keras` (Keras v3 format — single file, includes optimiser state).
-8. Save training history to `models/training_history.json` for plotting.
+1. Parses args: `--data-dir`, `--output-dir`, `--epochs-phase1` (35), `--epochs-phase2` (55), `--batch-size` (32), `--seed` (42), `--mixup-alpha` (0.2), `--label-smoothing` (0.1), `--resume-from`.
+2. Sets seeds (`PYTHONHASHSEED`, `random`, `numpy`, `tf.random`).
+3. Loads `train/`, `val/`, `test/` via `image_dataset_from_directory(image_size=(300,300), color_mode="grayscale", label_mode="categorical")`; applies MixUp to the training set only.
+4. Builds the model (Phase 1: backbone frozen), trains Phase 1, checkpoints best-val-loss weights to `fer_phase1_best.keras`.
+5. Reloads best Phase 1 weights, calls `unfreeze_top_blocks(backbone)`, recompiles at LR 1e-5, trains Phase 2 (checkpointing to `fer_model_checkpoint.keras`).
+6. Saves the final model to `fer_model.keras`, history to `training_history.json`.
+7. Produces evaluation artefacts (below).
 
-**Set random seeds:** `np.random.seed(seed)`, `tf.random.set_seed(seed)`, `random.seed(seed)`, and `os.environ["PYTHONHASHSEED"] = str(seed)`. Even with this, GPU non-determinism may cause small variance.
+**Resuming:** `--resume-from <checkpoint.keras>` skips Phase 1 entirely and continues Phase 2 from a checkpoint (handy when a Colab session disconnects mid-Phase-2).
 
-**Logging:** Use `tf.keras.callbacks.CSVLogger` to dump per-epoch metrics. Pair with `TensorBoard` callback for live curves during training.
+Example invocations are in the module docstring at the top of the script.
 
 ---
 
@@ -204,136 +220,105 @@ Single script: `scripts/train_emotion_model.py`. Should:
 
 ### Loading the model (at app startup, once)
 
+Implemented in `src/fer/inference.py`. It imports the label constants from `src/fer/model.py` (single source of truth) and loads `models/fer_model.keras`:
+
 ```python
-# src/fer/emotion_model.py
-import tensorflow as tf
-from pathlib import Path
+# src/fer/inference.py (outline)
+MODEL_PATH = <repo>/models/fer_model.keras
+from src.fer.model import EMOTION_LABELS, IN_SCOPE
 
-MODEL_PATH = Path("models/emotion_model.keras")
-EMOTION_LABELS = ["surprise", "fear", "disgust", "happy", "sad", "angry", "neutral"]
-IN_SCOPE = {"surprise", "happy", "sad", "angry", "neutral"}
+def get_model():
+    # lazy singleton; tf.keras.models.load_model(MODEL_PATH, compile=False)
+    ...
 
-_model = None
+def warmup():
+    # one dummy predict on np.zeros((1, 300, 300, 1), float32) to amortise the
+    # first-call graph build (~2–3 s). Call once at startup.
+    ...
 
-def get_model() -> tf.keras.Model:
-    global _model
-    if _model is None:
-        _model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-    return _model
-
-def predict(image_array_300x300x3_normalised) -> tuple[str, float, dict]:
-    """
-    image_array: numpy array shape (300, 300, 3), already preprocessed
-                 (i.e. passed through efficientnet.preprocess_input).
-    Returns (predicted_label, confidence, all_class_probs_dict).
-    """
-    model = get_model()
-    batch = image_array_300x300x3_normalised[None, ...]  # add batch dim
-    probs = model.predict(batch, verbose=0)[0]            # shape (7,)
-    idx = int(probs.argmax())
-    label = EMOTION_LABELS[idx]
-    confidence = float(probs[idx])
-    all_probs = {EMOTION_LABELS[i]: float(probs[i]) for i in range(len(EMOTION_LABELS))}
-    return label, confidence, all_probs
+def predict(tensor_300x300x1) -> tuple[str, float, dict]:
+    """tensor: (300, 300, 1) float32 in [0, 255] (from the image pipeline).
+    Returns (label, confidence, all_class_probs)."""
+    ...
 ```
+
+**Input contract:** `predict` receives the tensor produced by `docs/IMAGE_PIPELINE.md` — `(300, 300, 1)` float32, **raw `[0, 255]`**, no `preprocess_input`. The wrapper adds the batch dimension. This must match training exactly.
 
 ### Out-of-scope handling
 
-This is **application-layer** logic, kept outside the model itself for cleanliness:
+Application-layer logic, kept outside the model:
 
 ```python
-def predict_in_scope(image_array) -> dict:
-    label, confidence, all_probs = predict(image_array)
-    if label not in IN_SCOPE:
-        return {
-            "status": "out_of_scope",
-            "detected": label,
-            "confidence": confidence,
-            "all_probs": all_probs,
-        }
-    return {
-        "status": "ok",
-        "emotion": label,
-        "confidence": confidence,
-        "all_probs": all_probs,
-    }
+def predict_in_scope(tensor) -> dict:
+    label, confidence, all_probs = predict(tensor)
+    if label not in IN_SCOPE:   # fear or disgust
+        return {"status": "out_of_scope", "detected": label,
+                "confidence": confidence, "all_probs": all_probs}
+    return {"status": "ok", "emotion": label,
+            "confidence": confidence, "all_probs": all_probs}
 ```
 
 ### Confidence threshold (optional, decide during testing)
 
-Initially: **no threshold**. Always return the argmax.
-
-If user testing reveals frequent low-confidence false positives, introduce a threshold (e.g. confidence < 0.4 → return error_low_confidence). Defer this decision until we have real test data. Default off.
+Initially **no threshold** — always return the argmax. If user testing reveals frequent low-confidence false positives, introduce one (e.g. `confidence < 0.4 → error_low_confidence`). Defer until real test data exists. Default off.
 
 ### Inference performance
 
-- **Per-image inference on CPU (single core):** ~300–500 ms for EfficientNet-B3 at 300×300.
-- **First inference is slower** (~2–3 s) due to lazy graph compilation. **Warm up at startup**: run one dummy inference on a zero tensor after `get_model()` to amortise this cost.
+- **Per-image CPU inference:** ~300–500 ms for B3 at 300 × 300.
+- **First inference is slow** (~2–3 s, lazy graph compilation). **Warm up at startup** via `warmup()`.
 
 ---
 
 ## Evaluation
 
-For the report, produce these artefacts after training:
+`scripts/train_fer_model.py` produces these after training (also re-runnable for the report):
 
-1. **Confusion matrix** (7×7) on the RAF-DB test set. Use `sklearn.metrics.confusion_matrix` + `seaborn.heatmap`. Save as `models/confusion_matrix.png`.
-2. **Per-class precision, recall, F1.** `sklearn.metrics.classification_report`. Save as `models/classification_report.txt`.
-3. **Training curves.** Loss + accuracy per epoch for both phases. Save as `models/training_curves.png`.
-4. **Per-class accuracy on the 5 in-scope classes only.** Reported separately from the full 7-class evaluation, because in-scope accuracy is what matters for end-user experience.
-5. **Top-2 accuracy.** A useful framing — even when the top prediction is wrong, knowing that the correct label is in the top 2 says the model is "close."
+1. **Confusion matrix** (7 × 7) on the test set → `confusion_matrix.png`.
+2. **Per-class precision / recall / F1** → `classification_report.txt`.
+3. **Training curves** (loss + accuracy, both phases) → `training_curves.png`.
+4. **7-class accuracy** and **5-in-scope accuracy** printed separately (in-scope is what matters for end users).
+5. **Top-2 accuracy** monitored during training.
 
-**Expected results based on prior work:**
-- Setiaputri et al. (2025, cited in CP1 §2.1.2.2): EfficientNet-B3 reached 84.47% on FER2013. RAF-DB is generally a cleaner dataset, so similar or better is realistic.
-- Aim: ≥ 80% test accuracy across 7 classes. ≥ 85% on the 5 in-scope classes.
+**Achieved results (test set, 1,736 images, unseen during training):**
 
-If after Phase 2 the model is below 75% test accuracy, **stop and investigate** before continuing the build:
-- Check class imbalance handling — re-verify class weights.
-- Check augmentation is enabled.
-- Check `BatchNormalization` layers are actually frozen during Phase 2.
-- Consider longer Phase 2 training (the LR is low, convergence is slow).
+| Metric | Target | Achieved |
+|---|---|---|
+| Test accuracy — 7-class | ≥ 80 % | **86.29 %** |
+| Test accuracy — 5 in-scope | ≥ 85 % | **86.61 %** |
+
+Both targets met. If a future retrain drops below 75 %, **stop and investigate** (see Pitfalls) before shipping.
 
 ---
 
-## Common pitfalls (read before training)
+## Common pitfalls (read before retraining or touching inference)
 
-1. **Forgetting `preprocess_input`.** EfficientNet's pretrained weights expect inputs scaled with their specific `preprocess_input` function (centred and scaled to [-1, 1]). If you skip this or use `/255.0` normalisation, accuracy collapses to ~random. *Both training and inference must use the same preprocessing.*
+1. **Applying `preprocess_input` or `/255.0`.** This setup feeds **raw `[0, 255]`** to EfficientNet-B3, which normalises internally. Adding external normalisation double-normalises and collapses accuracy. Training and inference must both feed `[0, 255]`.
 
-2. **Unfreezing BatchNormalization in Phase 2.** Already covered above. Easy to miss; catastrophic when missed.
+2. **Feeding RGB instead of grayscale.** The input is `(300, 300, 1)`. The model does the gray→3-channel replication itself. Passing a 3-channel image directly will fail the input shape check.
 
-3. **Mixing label encodings.** Stay consistent on one of:
-   - Integer labels (`y = [3, 1, 6, ...]`) → use `sparse_categorical_crossentropy`.
-   - One-hot labels (`y = [[0,0,0,1,0,0,0], ...]`) → use `categorical_crossentropy`.
-   - Recommendation: integer labels, simpler.
+3. **Un-freezing BatchNorm in Phase 2.** BN layers must stay `trainable=False` **and** the backbone must be called `training=False`. Easy to miss, catastrophic when missed.
 
-4. **Training on test data by accident.** RAF-DB ships train and test as separate folders; we further split train into train/val. Never let test images touch `fit()`. Use distinct `tf.data.Dataset` objects.
+4. **Reordering `EMOTION_LABELS`.** The softmax output order is baked into the saved model. Changing the order silently mislabels every prediction.
 
-5. **Saving the model in the wrong format.** Save as `.keras` (Keras v3 single-file format), **not** legacy `.h5`. Keras 3 / TF 2.16+ deprecates HDF5 saving and `.keras` is the recommended format.
+5. **Mixing label encodings.** Focal loss + MixUp require **one-hot** labels (`label_mode="categorical"`). Don't switch to integer labels / sparse loss without changing both.
 
-6. **Model file size.** Expect ~50 MB. Add `models/*.keras` to `.gitignore` if it exceeds GitHub's 100 MB hard limit; otherwise commit it so other machines can run inference without re-training.
+6. **Training on test data.** `train/`, `val/`, `test/` are distinct folders; never let test images touch `fit()`.
 
-7. **Determinism for tests.** Set seeds, but accept that GPU operations have residual non-determinism. The CPU inference path in production tests is deterministic.
+7. **Saving in `.h5`.** Save as `.keras` (Keras v3). `models/*.keras` is gitignored (the file is ~50 MB); distribute it out-of-band or via the model download instructions in the submission package.
+
+8. **Determinism for tests.** Seeds are set, but GPU ops have residual non-determinism. The CPU inference path used in tests is deterministic.
 
 ---
 
 ## When and how to retrain
 
-You will not retrain casually. Retraining triggers:
-
-- Architecture change (e.g. swap to B0 because B3 is too slow on the target machine).
-- Adding/removing emotion classes.
-- Switching datasets (e.g. adding AffectNet — out of scope for capstone).
-- Discovering a data quality bug in RAF-DB preparation.
-
-Each retraining run should be:
-- Versioned: `models/emotion_model_v{N}.keras`, with `models/emotion_model.keras` symlinked (or copied) to the current production version.
-- Documented: a markdown note in `models/README.md` describing what changed and the new test metrics.
-- Committed: training script changes, hyperparameter changes, and a results summary.
+Retraining triggers: architecture change (e.g. swap to B0), adding/removing emotion classes, switching/rebalancing datasets, or discovering a data-quality bug. Each run should be versioned (`models/fer_model_v{N}.keras`), documented (a note describing what changed + new metrics), and committed (script + hyperparameter changes + results summary).
 
 ---
 
 ## Related docs
 
-- `docs/IMAGE_PIPELINE.md` — produces the input tensors this model consumes.
+- `docs/IMAGE_PIPELINE.md` — produces the `(300, 300, 1)` `[0, 255]` tensors this model consumes.
 - `docs/ARCHITECTURE.md` — where this fits in the system flow.
 - `docs/TESTING.md` — how to test the model end-to-end with a fixture image.
-- `docs/BUILD_PLAN.md` — when in CP2 to train the model (Phase 3, weeks 3–8).
+- `docs/BUILD_PLAN.md` — Track C task breakdown.

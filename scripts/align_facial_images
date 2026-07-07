@@ -3,26 +3,32 @@ Face-alignment preprocessing for AffectNet datasets.
 
 Pipeline per image (target look: RAF-DB "aligned" crops, e.g. test_0084_aligned.jpg):
   1. Convert the image to grayscale.
-  2. Locate the face with MediaPipe FaceMesh and rotate the image so the eyes are
-     horizontal (same alignment step RAF-DB applies).
+  2. Locate the face with MediaPipe and rotate the image so the eyes are horizontal
+     (same alignment step RAF-DB applies).
   3. Crop a SQUARE tightly around the face-oval landmarks (chin -> forehead) plus a
      small margin, so the face fills the frame and shoulders/background are cut.
   4. Resize to 300x300 (EfficientNet-B3 input). The crop is already square, so the
      face is never warped.
 
-If FaceMesh finds no face, fall back to padding the whole image to a square and
-report it, so no sample silently disappears with a bad crop.
+If no face is found, fall back to padding the whole image to a square and report
+it, so no sample silently disappears with a bad crop.
 
-The FaceMesh detector is created ONCE and reused across the dataset (much faster
-than per-image construction).
+Detection uses the MediaPipe **Tasks** ``FaceLandmarker`` (the legacy
+``solutions.face_mesh`` API was removed in mediapipe 0.10.35). It returns the same
+468-point face-mesh topology, so the eye-corner and face-oval indices -- and the
+alignment/crop math -- are identical to the runtime pipeline in
+``src/fer/image_pipeline.py``; keep the two in sync. Needs the
+``models/face_landmarker.task`` asset. The detector is created ONCE and reused.
 """
 
 import os
-from itertools import chain
+from pathlib import Path
 
 import cv2
 import mediapipe as mp
 import numpy as np
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision
 from PIL import Image, ImageOps
 
 # ============================================================
@@ -36,29 +42,38 @@ PAD_WHITE = 255          # white color for rotation borders and crop padding
 FACE_MARGIN = 0.01      # extra margin around the face-oval box (fraction of box size)
 # ============================================================
 
-os.makedirs(output_folder, exist_ok=True)
+# MediaPipe Tasks face-landmarker model bundle (shared with the runtime pipeline).
+MODEL_ASSET = Path(__file__).resolve().parents[1] / "models" / "face_landmarker.task"
 
-# One FaceMesh detector, reused for every image.
-face_mesh = mp.solutions.face_mesh.FaceMesh(
-    static_image_mode=True,
-    max_num_faces=1,
-    refine_landmarks=False,
-    min_detection_confidence=0.5,
+# One FaceLandmarker, reused for every image. num_faces=1: one subject per sample.
+_landmarker = vision.FaceLandmarker.create_from_options(
+    vision.FaceLandmarkerOptions(
+        base_options=mp_python.BaseOptions(model_asset_path=str(MODEL_ASSET)),
+        running_mode=vision.RunningMode.IMAGE,
+        num_faces=1,
+        min_face_detection_confidence=0.5,
+    )
 )
 
-# Landmark ids tracing the outline of the face (chin to forehead).
-FACE_OVAL_IDS = sorted(set(chain(*mp.solutions.face_mesh.FACEMESH_FACE_OVAL)))
+# Sorted unique vertices of MediaPipe's canonical FACEMESH_FACE_OVAL (chin -> forehead).
+# Hardcoded because the Tasks API no longer ships the FACEMESH_* connection constants.
+FACE_OVAL_IDS = [
+    10, 21, 54, 58, 67, 93, 103, 109, 127, 132, 136, 148, 149, 150, 152, 162,
+    172, 176, 234, 251, 284, 288, 297, 323, 332, 338, 356, 361, 365, 377, 378,
+    379, 389, 397, 400, 454,
+]
 LEFT_EYE_IDS = [33, 133]    # eye-corner landmarks; eye centre = mean of the corners
 RIGHT_EYE_IDS = [362, 263]
 
 
 def face_landmarks_px(rgb):
-    """Return the FaceMesh landmarks as an (N, 2) pixel-coordinate array, or None."""
-    result = face_mesh.process(rgb)
-    if not result.multi_face_landmarks:
+    """Return the face landmarks as an (N, 2) pixel-coordinate array, or None."""
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
+    result = _landmarker.detect(mp_image)
+    if not result.face_landmarks:
         return None
     h, w = rgb.shape[:2]
-    points = result.multi_face_landmarks[0].landmark
+    points = result.face_landmarks[0]
     return np.array([[p.x * w, p.y * h] for p in points], dtype=np.float32)
 
 
@@ -121,6 +136,7 @@ def process(input_path):
 
 
 def main():
+    os.makedirs(output_folder, exist_ok=True)
     processed = fallback = 0
     for file in os.listdir(input_folder):
         if not file.lower().endswith((".png", ".jpg", ".jpeg")):
