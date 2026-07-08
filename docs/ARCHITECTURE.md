@@ -129,7 +129,7 @@ User launches app
     → Yes → silently refresh access token, proceed
   → Frontend verifies Premium via api.verify_premium() (calls /me, checks `product == "premium"`)
     → If not Premium → show "Premium required" message, end flow
-  → Home page rendered with playlists sidebar (api.get_user_playlists())
+  → Home page rendered with playlists sidebar (api.list_user_playlists())
 ```
 
 ### Flow B: Camera-based recommendation (the main use case)
@@ -152,6 +152,8 @@ User clicks "Take Photo"
   → fer.inference.predict(image_tensor) → (emotion_label, confidence)
     - If emotion_label in {fear, disgust} → return {"error": "out_of_scope", "detected": label}
     - Else → continue
+    - api/ maps the model's RAF-DB label "surprise" to the app vocabulary
+      "surprised" (used by the frontend, the rule table, and the recommender)
   → music.recommender.generate_playlist(emotion_label)
     1. Look up emotion_music_mapping row
     2. SELECT * FROM music WHERE valence BETWEEN ? AND ? AND energy BETWEEN ? AND ? AND tempo BETWEEN ? AND ? LIMIT 1000
