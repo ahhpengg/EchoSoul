@@ -434,13 +434,15 @@ The frontend's `fetch` calls are simpler — let them surface errors to the user
 The complete list of Spotify-related bridge methods exposed via PyWebView:
 
 ```python
-class SpotifyAPI:
+class BridgeApi:  # src/api/bridge.py (Spotify-related subset)
     def has_spotify_session(self) -> bool: ...
     def start_spotify_login(self) -> dict: ...     # returns {"success": bool, "error": str|None}
     def logout(self) -> None: ...
     def get_spotify_access_token(self) -> str: ... # fresh token, refreshed if needed
     def verify_premium(self) -> dict: ...          # {"premium": bool, "product": str, ...}
     def get_user_profile(self) -> dict: ...        # cached version of verify_premium()
+    def open_external_url(self, url) -> bool: ...  # allowlisted (spotify.com only) system-browser
+                                                   # opener; used by premium_required.html
 ```
 
 All return JSON-serialisable types or raise — the API layer never returns Python objects that PyWebView can't serialise.

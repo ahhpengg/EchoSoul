@@ -41,10 +41,10 @@ Per CP1 §3.5, there are 6 core pages plus the OAuth/Premium gating screens at f
 
 ```
 frontend/
-├── index.html              ✅ landing (static: redirects to home; becomes the auth gate)
+├── index.html              ✅ auth gate (session + Premium checks → login / premium_required / home)
 ├── pages/
-│   ├── login.html          ⬜ Spotify login button, Premium-required notice
-│   ├── premium_required.html ⬜ shown when /me returns product != "premium"
+│   ├── login.html          ✅ Spotify login button, Premium-required notice
+│   ├── premium_required.html ✅ hard block when /me returns product != "premium"
 │   ├── home.html           ✅ main screen — emotion scanner + manual chips + sample playlist
 │   ├── photo.html          ✅ webcam capture (viewfinder, scan line, detection oval)
 │   ├── mood.html           ✅ manual mood selection (5 emotion cards)
@@ -59,19 +59,59 @@ frontend/
     ├── vendor/tailwind.js  ✅ vendored Tailwind Play build
     ├── tailwind-config.js  ✅ shared theme tokens
     ├── chrome.js           ✅ shared page chrome (sidebar + top bar + bottom player), responsive drawer, nav wiring, header-scroll
+    ├── titlebar.js         ✅ frameless-window controls (min/max/close + drag regions); loads after chrome.js
     ├── home.js             ✅ hero zoom + manual-mood / scan navigation
     ├── mood.js             ✅ mood-card selection → loading
     ├── photo.js            ✅ capture → loading (webcam wiring pending)
     ├── loading.js          ✅ auto-advance to result (inference wiring pending)
     ├── result.js           ✅ per-emotion content + tracklist renderer
     ├── shader.js           ✅ optional WebGL "Vibe Canvas" background (opt-in)
-    ├── bridge.js           ⬜ wrapper for pywebview.api with timeout + error handling
-    ├── auth_gate.js        ⬜ runs on index.html; routes to login / premium / home
+    ├── bridge.js           ✅ callPy()/callPyWithTimeout(): pywebviewready wait + timeout
+    ├── auth_gate.js        ✅ runs on index.html; routes to login / premium / home
+    ├── login.js            ✅ login page: start_spotify_login with a long-timeout bridge call
+    ├── premium_required.js ✅ premium gate: upgrade link (system browser), re-check, logout
     ├── camera.js           ⬜ webcam preview + capture
     ├── playback.js         ⬜ Spotify SDK initialisation + playback control (replaces the placeholder bottom player rendered by chrome.js)
     ├── sidebar.js          ⬜ saved-playlists sidebar — live data (replaces the placeholder playlist list rendered by chrome.js)
     └── error_handler.js    ⬜ maps error codes to user-facing messages
 ```
+
+### Custom title bar (frameless window)
+
+The window is created with `frameless=True` (`src/main.py`), so the OS title
+bar is gone and `js/titlebar.js` provides the replacement on **every** page:
+
+- **Chrome pages** (`#app-header` exists): minimize / maximize / close buttons
+  are appended into the top app bar and the bar's spare flex space becomes the
+  drag region — Spotify-desktop style, no extra bar, no layout change. Load
+  order matters: `chrome.js` → `titlebar.js` → page script.
+- **Pre-auth pages** (gate / login / premium, no header): a slim transparent
+  overlay strip is injected across the top (brand mark left, controls right).
+- Dragging: pywebview turns any element with the `pywebview-drag-region` class
+  into a drag handle (`easy_drag` is off so page content never drags the
+  window). Double-clicking a drag region toggles maximize.
+- The buttons call the `window_minimize` / `window_toggle_maximize` /
+  `window_close` / `window_is_maximized` bridge methods (`src/api/bridge.py`),
+  which drive the pywebview window; maximized state is read from the native
+  form so Win+Arrow snapping can't desync the toggle icon.
+- **Resizing:** pywebview's WinForms backend does not hit-test resize borders
+  on frameless windows, so `titlebar.js` injects invisible strips along all
+  four edges + corners (`data-resize`, resize cursors). A pointer drag first
+  calls `window_begin_resize(edge)` — which captures the anchor rectangle
+  **once** and returns the starting size — then streams `window_resize(w, h)`
+  steps, each an absolute Win32 `SetWindowPos` computed from that fixed
+  anchor. ⚠️ Do **not** use pywebview's `resize(fix_point=...)` for this: it
+  re-reads the form's cached bounds on every call, and under a fast drag those
+  reads race the UI thread's updates — the error compounds until the window
+  walks off-screen (observed live). Sizes clamp to the shared minimum
+  (`MIN_WINDOW_WIDTH/HEIGHT` in `src/api/bridge.py`). JS CSS pixels differ
+  from native pixels under Windows display scaling, so the drag calibrates a
+  scale factor from the begin-call's size / `window.outerWidth`. Handles are
+  inert while maximized. Note: drag-to-screen-edge Aero snap does not trigger
+  (drag/resize are programmatic); Win+Arrow snapping still works.
+- `src/main.py` additionally sets the title-bar/taskbar icon (WinForms
+  `Form.Icon` via `Form.Invoke` — pywebview's `icon` kwarg is GTK/QT-only) and
+  asks DWM to round the frameless window's corners on Windows 11.
 
 ### Shared chrome & responsiveness
 
@@ -136,32 +176,27 @@ The Spotify SDK is loaded once, at `index.html`, and survives across page naviga
 
 ## The bridge wrapper
 
-PyWebView's `pywebview.api.method(...)` returns a Promise. Wrap it for consistent error handling:
+PyWebView's `pywebview.api.method(...)` returns a Promise. Wrap it for consistent error handling (as-built in `frontend/js/bridge.js`):
 
 ```javascript
-// frontend/js/bridge.js
+// frontend/js/bridge.js (abridged — see the module)
 const BRIDGE_TIMEOUT_MS = 30000;
 
 export async function callPy(method, ...args) {
-  const fn = pywebview?.api?.[method];
-  if (typeof fn !== "function") {
-    throw new Error(`Bridge method not found: ${method}`);
-  }
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`Bridge call timed out: ${method}`)),
-      BRIDGE_TIMEOUT_MS
-    );
-    fn(...args)
-      .then(result => { clearTimeout(timer); resolve(result); })
-      .catch(err =>   { clearTimeout(timer); reject(err); });
-  });
+  return callPyWithTimeout(BRIDGE_TIMEOUT_MS, method, ...args);
+}
+
+export async function callPyWithTimeout(timeoutMs, method, ...args) {
+  // Promise.race between the bridge invocation and a timeout rejection.
+  // The invocation first awaits bridgeReady(): resolves immediately when
+  // window.pywebview.api exists, else waits for the `pywebviewready` event
+  // (pitfall #5 below — fast page loads can beat the bridge injection).
 }
 ```
 
 Use it as: `const result = await callPy("detect_emotion", base64Image);`
 
-The 30-second timeout is a guard against the Python side hanging (e.g. model loading failing silently). 30 seconds is generous — actual end-to-end should be < 5 s.
+The 30-second default timeout is a guard against the Python side hanging (e.g. model loading failing silently). 30 seconds is generous — actual end-to-end should be < 5 s. **Exception:** `start_spotify_login` legitimately blocks while the user completes OAuth in their browser (Python waits up to 180 s), so `login.js` calls it via `callPyWithTimeout(190000, "start_spotify_login")` — Python must time out first so its specific error message, not a generic bridge timeout, reaches the user.
 
 ---
 
@@ -172,24 +207,35 @@ The 30-second timeout is a guard against the Python side hanging (e.g. model loa
 Single responsibility: check session state and redirect.
 
 ```javascript
-// frontend/js/auth_gate.js
+// frontend/js/auth_gate.js (as-built; the module adds a status line)
 import { callPy } from "./bridge.js";
 
 window.addEventListener("load", async () => {
-  if (!await callPy("has_spotify_session")) {
-    window.location.assign("pages/login.html");
-    return;
+  try {
+    if (!(await callPy("has_spotify_session"))) {
+      window.location.replace("pages/login.html");
+      return;
+    }
+    const profile = await callPy("verify_premium");
+    if (!profile.premium) {
+      window.location.replace("pages/premium_required.html");
+      return;
+    }
+    // Save profile to sessionStorage for sidebar / header use
+    sessionStorage.setItem("spotify_profile", JSON.stringify(profile));
+    window.location.replace("pages/home.html");
+  } catch (err) {
+    // Session unusable (revoked token, network down). Deliberately NOT calling
+    // logout — a transient network failure must not destroy a good refresh
+    // token. A fresh login overwrites the cache anyway.
+    sessionStorage.setItem("login_notice",
+      "We couldn't restore your Spotify session. Please log in again.");
+    window.location.replace("pages/login.html");
   }
-  const profile = await callPy("verify_premium");
-  if (!profile.premium) {
-    window.location.assign("pages/premium_required.html");
-    return;
-  }
-  // Save profile to sessionStorage for sidebar / header use
-  sessionStorage.setItem("spotify_profile", JSON.stringify(profile));
-  window.location.assign("pages/home.html");
 });
 ```
+
+`location.replace` (not `assign`) keeps the gate page out of the back-history, so the header's Back button never re-runs the gate.
 
 ### `login.html`
 
@@ -204,22 +250,39 @@ window.addEventListener("load", async () => {
 ```
 
 ```javascript
-document.querySelector("#login-btn").addEventListener("click", async () => {
-  document.querySelector("#login-btn").disabled = true;
-  document.querySelector("#status").textContent =
-    "Opening Spotify in your browser…";
+// frontend/js/login.js (abridged — see the module)
+import { callPyWithTimeout } from "./bridge.js";
+
+const LOGIN_TIMEOUT_MS = 190000; // > Python's 180 s LOGIN_TIMEOUT_SECONDS
+
+els.loginBtn.addEventListener("click", async () => {
+  els.loginBtn.disabled = true;
+  setStatus("Opening Spotify in your browser… finish logging in there.");
   try {
-    const result = await callPy("start_spotify_login");
+    const result = await callPyWithTimeout(LOGIN_TIMEOUT_MS, "start_spotify_login");
     if (result.success) {
-      window.location.assign("../index.html");  // re-runs auth gate
-    } else {
-      showError(result.error);
+      window.location.replace("../index.html");  // re-runs the auth gate
+      return;
     }
+    setStatus(result.error, true);
   } catch (err) {
-    showError(err.message);
+    setStatus(err.message, true);
   }
+  els.loginBtn.disabled = false;
 });
 ```
+
+The page also shows the one-shot `sessionStorage.login_notice` left by the auth gate (e.g. "couldn't restore your session").
+
+### `premium_required.html`
+
+Hard block for Free accounts (see `docs/SPOTIFY_INTEGRATION.md` > Premium verification). Three actions, wired in `js/premium_required.js`:
+
+- **Get Spotify Premium** → `callPy("open_external_url", "https://www.spotify.com/premium/")` — opens the **system** browser via an allowlisted bridge method; the webview itself must never navigate away from the app.
+- **I've upgraded — check again** → `location.replace("../index.html")`, re-running the gate (`verify_premium()` does a fresh `/me` fetch).
+- **Use a different account** → `callPy("logout")` then `login.html`.
+
+It also shows a best-effort "Logged in as X (free account)" line from `get_user_profile`.
 
 ### `home.html`
 
