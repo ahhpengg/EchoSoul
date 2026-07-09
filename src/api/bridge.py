@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import webbrowser
 
 import cv2
 import numpy as np
@@ -42,6 +43,31 @@ _QUICK_CHECK_MAX_DIM = 320
 # a running detect_emotion().
 _fer_lock = threading.Lock()
 
+# URLs the frontend may open in the system browser. Kept deliberately tight so
+# the bridge never becomes a generic "open anything" primitive for page content.
+_ALLOWED_EXTERNAL_URL_PREFIXES = ("https://www.spotify.com/",)
+
+# The window's minimum size (also passed to create_window in src/main.py).
+# Enforced here too because the custom resize drag bypasses the native limit.
+MIN_WINDOW_WIDTH = 800
+MIN_WINDOW_HEIGHT = 600
+
+# Valid dragged edges/corners for a custom resize.
+_RESIZE_EDGES = frozenset({"n", "s", "e", "w", "ne", "nw", "se", "sw"})
+
+
+def _set_window_rect(hwnd: int, x: int, y: int, width: int, height: int) -> None:
+    """One atomic move+resize via Win32 SetWindowPos (SWP_NOZORDER | SWP_NOACTIVATE).
+
+    pywebview's own fix-point resize re-reads the form's cached bounds on every
+    call; under a fast drag those reads race the UI thread's bounds updates and
+    the positional error compounds until the window walks off-screen. Absolute
+    coordinates computed from a drag-start anchor have no feedback loop.
+    """
+    import ctypes
+
+    ctypes.windll.user32.SetWindowPos(hwnd, None, int(x), int(y), int(width), int(height), 0x0014)
+
 
 def _downscale(rgb: np.ndarray, max_dim: int) -> np.ndarray:
     """Shrink an RGB frame so its longest side is at most ``max_dim`` pixels."""
@@ -57,7 +83,98 @@ class BridgeApi:
 
     Every return value is JSON-serialisable (dict / list / scalar / None) —
     PyWebView cannot marshal arbitrary Python objects across the bridge.
+    Underscore-prefixed members are NOT exposed to JavaScript.
     """
+
+    def __init__(self) -> None:
+        # The pywebview window, bound by main.py right after create_window();
+        # needed by the window-control methods for the custom title bar.
+        self._window = None
+        # Anchor rectangle of the in-progress edge-resize drag (see
+        # window_begin_resize); None outside a drag.
+        self._resize_drag = None
+
+    def _bind_window(self, window) -> None:
+        self._window = window
+
+    def _require_window(self):
+        if self._window is None:
+            raise RuntimeError("No window bound; window controls are unavailable.")
+        return self._window
+
+    # --- Window controls (custom title bar on the frameless window) ---------
+
+    def window_is_maximized(self) -> bool:
+        """True if the window is currently maximized (sets the initial icon).
+
+        Reads the real native state (WinForms ``FormWindowState``) rather than
+        tracking a flag, so Win+Arrow snapping can't desync the toggle.
+        """
+        native = getattr(self._require_window(), "native", None)
+        return str(getattr(native, "WindowState", "")) == "Maximized"
+
+    def window_minimize(self) -> None:
+        """Minimize the app window."""
+        self._require_window().minimize()
+
+    def window_toggle_maximize(self) -> bool:
+        """Maximize or restore the window; returns True when now maximized."""
+        window = self._require_window()
+        if self.window_is_maximized():
+            window.restore()
+            return False
+        window.maximize()
+        return True
+
+    def window_close(self) -> None:
+        """Close the app window (quits the application)."""
+        self._require_window().destroy()
+
+    def window_get_size(self) -> dict:
+        """Current native window size (native pixels, not CSS pixels)."""
+        window = self._require_window()
+        return {"width": window.width, "height": window.height}
+
+    def window_begin_resize(self, edge: str) -> dict:
+        """Start a custom edge-resize drag: capture the anchor rectangle ONCE.
+
+        ``edge`` is the dragged edge/corner (n/s/e/w/ne/nw/se/sw). The native
+        geometry is read a single time here — reading it again on every step
+        races the UI thread's bounds updates and the error compounds until the
+        window walks off-screen. Returns the starting size so the frontend can
+        calibrate its CSS-px → native-px scale factor.
+        """
+        if edge not in _RESIZE_EDGES:
+            raise ValueError(f"Unknown resize edge: {edge!r}")
+        native = self._require_window().native
+        left, top = int(native.Left), int(native.Top)
+        width, height = int(native.Width), int(native.Height)
+        self._resize_drag = {
+            "edge": edge,
+            "left": left,
+            "top": top,
+            "right": left + width,
+            "bottom": top + height,
+            "hwnd": native.Handle.ToInt64(),
+        }
+        return {"width": width, "height": height}
+
+    def window_resize(self, width: int, height: int) -> bool:
+        """One step of the active resize drag (after ``window_begin_resize``).
+
+        The edge opposite the dragged one stays pinned to the anchor captured
+        at drag start; sizes are clamped to the app minimum. Returns True so
+        the frontend's promise chain has a value to settle on.
+        """
+        drag = self._resize_drag
+        if drag is None:
+            raise RuntimeError("window_begin_resize must be called before window_resize.")
+        width = max(int(width), MIN_WINDOW_WIDTH)
+        height = max(int(height), MIN_WINDOW_HEIGHT)
+        x = drag["right"] - width if "w" in drag["edge"] else drag["left"]
+        y = drag["bottom"] - height if "n" in drag["edge"] else drag["top"]
+        _set_window_rect(drag["hwnd"], x, y, width, height)
+        return True
 
     # --- Spotify session & account (docs/SPOTIFY_INTEGRATION.md) ------------
 
@@ -90,6 +207,17 @@ class BridgeApi:
     def get_user_profile(self) -> dict:
         """Session-cached profile; fetches once via ``verify_premium()``."""
         return account.get_user_profile()
+
+    def open_external_url(self, url: str) -> bool:
+        """Open an allowlisted URL in the system's default browser.
+
+        Outward links (e.g. the Spotify Premium upgrade page) must not navigate
+        the embedded webview away from the app, so they go through this method.
+        Raises ValueError for URLs outside the allowlist.
+        """
+        if not url.startswith(_ALLOWED_EXTERNAL_URL_PREFIXES):
+            raise ValueError(f"URL not allowed: {url!r}")
+        return webbrowser.open(url)
 
     # --- FER (docs/IMAGE_PIPELINE.md, docs/FER_MODEL.md) --------------------
 

@@ -5,17 +5,42 @@
   <meta content="width=device-width, initial-scale=1.0" name="viewport">
   <title>EchoSoul</title>
   <!--
-    Static landing page for the design import.
+    Auth gate (docs/FRONTEND.md > index.html).
 
-    In the finished app this is the auth gate (check Spotify session + Premium,
-    then route to login / premium_required / home) as described in
-    docs/FRONTEND.md > index.html. For now it simply enters the home screen.
+    js/auth_gate.js checks the Spotify session + Premium status via the bridge
+    and routes to pages/login.html, pages/premium_required.html or
+    pages/home.html. This page only shows a splash while that happens.
   -->
-  <meta http-equiv="refresh" content="0; url=pages/home.html">
   <link rel="stylesheet" href="css/fonts.css">
-  <script>window.location.replace("pages/home.html");</script>
+  <link rel="stylesheet" href="css/app.css">
+  <script src="js/vendor/tailwind.js"></script>
+  <script src="js/tailwind-config.js"></script>
+  <script type="module" src="js/auth_gate.js"></script>
 </head>
-<body class="bg-background text-on-background" style="background:#0b1326;color:#dae2fd;font-family:Inter,system-ui,sans-serif;">
+<body data-page="gate" class="bg-background text-on-surface font-body-md min-h-screen overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+
+  <main class="h-screen flex flex-col items-center justify-center relative px-4">
+    <div class="absolute inset-0 pointer-events-none overflow-hidden z-0 flex items-center justify-center opacity-30">
+      <div class="w-[600px] h-[600px] bg-primary-container rounded-full blur-[120px] mix-blend-screen opacity-20"></div>
+      <div class="w-[400px] h-[400px] bg-tertiary-container rounded-full blur-[100px] mix-blend-screen opacity-10 absolute top-1/4 right-1/4"></div>
+    </div>
+
+    <div class="z-10 flex flex-col items-center text-center gap-6 animate-fade-in-up">
+      <div class="w-24 h-24 rounded-xl flex items-center justify-center shadow-[0_0_30px_rgba(183,109,255,0.35)]">
+        <img src="assets/img/logo.png" alt="EchoSoul logo" class="w-full h-full object-contain">
+      </div>
+      <div>
+        <h1 class="text-headline-xl font-headline-xl font-bold text-primary tracking-tight">EchoSoul</h1>
+        <p class="text-body-md font-body-md text-on-surface-variant mt-1">Music that echoes your soul</p>
+      </div>
+      <p id="gate-status" class="pulse-text text-label-md font-label-md text-on-surface-variant mt-4">Starting up…</p>
+      <div class="w-56 h-1 rounded-full bg-surface-container-high overflow-hidden">
+        <div class="progress-bar-fill w-full h-full"></div>
+      </div>
+    </div>
+  </main>
+
   <noscript><a href="pages/home.html">Enter EchoSoul</a></noscript>
+  <script src="js/titlebar.js"></script>
 </body>
 </html>

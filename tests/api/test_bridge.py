@@ -239,6 +239,165 @@ def test_playlist_crud_delegates_with_int_coercion(monkeypatch, api):
     assert all(isinstance(v, int) for v in (seen["load"], seen["rename"][0], seen["delete"]))
 
 
+# --- window controls ---------------------------------------------------------
+
+
+class _FakeHandle:
+    def ToInt64(self):  # noqa: N802 - mimics System.IntPtr
+        return 42
+
+
+class _FakeNative:
+    def __init__(self, state: str):
+        self.WindowState = state
+        self.Left = 100
+        self.Top = 50
+        self.Width = 1280
+        self.Height = 800
+        self.Handle = _FakeHandle()
+
+
+class _FakeWindow:
+    """Mimics the pywebview Window surface the bridge touches."""
+
+    def __init__(self):
+        self.native = _FakeNative("Normal")
+        self.calls = []
+        self.width = 1280
+        self.height = 800
+
+    def minimize(self):
+        self.calls.append("minimize")
+
+    def maximize(self):
+        self.calls.append("maximize")
+        self.native.WindowState = "Maximized"
+
+    def restore(self):
+        self.calls.append("restore")
+        self.native.WindowState = "Normal"
+
+    def destroy(self):
+        self.calls.append("destroy")
+
+
+def test_window_controls_require_bound_window(api):
+    with pytest.raises(RuntimeError):
+        api.window_minimize()
+
+
+def test_window_toggle_maximize_follows_native_state(api):
+    win = _FakeWindow()
+    api._bind_window(win)
+    assert api.window_toggle_maximize() is True
+    assert api.window_is_maximized() is True
+    assert api.window_toggle_maximize() is False
+    assert api.window_is_maximized() is False
+    assert win.calls == ["maximize", "restore"]
+
+
+def test_window_minimize_and_close_delegate(api):
+    win = _FakeWindow()
+    api._bind_window(win)
+    api.window_minimize()
+    api.window_close()
+    assert win.calls == ["minimize", "destroy"]
+
+
+def test_window_get_size_reports_native_size(api):
+    win = _FakeWindow()
+    api._bind_window(win)
+    assert api.window_get_size() == {"width": 1280, "height": 800}
+    json.dumps(api.window_get_size())
+
+
+@pytest.fixture()
+def rects(monkeypatch):
+    """Capture _set_window_rect calls instead of hitting Win32."""
+    calls = []
+    monkeypatch.setattr(
+        bridge_module,
+        "_set_window_rect",
+        lambda hwnd, x, y, w, h: calls.append((hwnd, x, y, w, h)),
+    )
+    return calls
+
+
+def test_window_resize_anchors_opposite_edge_from_drag_start(api, rects):
+    # Fake native rect: left=100 top=50 width=1280 height=800 -> right=1380 bottom=850.
+    win = _FakeWindow()
+    api._bind_window(win)
+
+    assert api.window_begin_resize("nw") == {"width": 1280, "height": 800}
+    api.window_resize(1000, 700)
+    # Bottom-right corner stays pinned even if the fake native rect changes
+    # afterwards (the anchor was captured at drag start).
+    win.native.Left = 999
+    win.native.Width = 1
+    api.window_resize(900, 650)
+    assert rects == [
+        (42, 380, 150, 1000, 700),
+        (42, 480, 200, 900, 650),
+    ]
+
+
+def test_window_resize_east_edge_keeps_origin(api, rects):
+    win = _FakeWindow()
+    api._bind_window(win)
+    api.window_begin_resize("se")
+    api.window_resize(1000, 700)
+    assert rects == [(42, 100, 50, 1000, 700)]
+
+
+def test_window_resize_clamps_to_minimum(api, rects):
+    win = _FakeWindow()
+    api._bind_window(win)
+    api.window_begin_resize("se")
+    api.window_resize(10, 10)
+    assert rects == [(42, 100, 50, bridge_module.MIN_WINDOW_WIDTH, bridge_module.MIN_WINDOW_HEIGHT)]
+
+
+def test_window_begin_resize_rejects_unknown_edge(api, rects):
+    win = _FakeWindow()
+    api._bind_window(win)
+    with pytest.raises(ValueError):
+        api.window_begin_resize("x")
+    assert rects == []
+
+
+def test_window_resize_requires_begin(api, rects):
+    win = _FakeWindow()
+    api._bind_window(win)
+    with pytest.raises(RuntimeError):
+        api.window_resize(900, 700)
+    assert rects == []
+
+
+# --- open_external_url -------------------------------------------------------
+
+
+def test_open_external_url_opens_allowlisted_url(monkeypatch, api):
+    opened = []
+    monkeypatch.setattr(bridge_module.webbrowser, "open", lambda url: opened.append(url) or True)
+    assert api.open_external_url("https://www.spotify.com/premium/") is True
+    assert opened == ["https://www.spotify.com/premium/"]
+
+
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "http://www.spotify.com/premium/",  # not https
+        "https://evil.example/phish",
+        "javascript:alert(1)",
+        "https://www.spotify.com.evil.example/",
+    ],
+)
+def test_open_external_url_rejects_non_allowlisted_url(monkeypatch, api, bad_url):
+    monkeypatch.setattr(bridge_module.webbrowser, "open", lambda url: pytest.fail("must not open"))
+    with pytest.raises(ValueError):
+        api.open_external_url(bad_url)
+
+
 # --- Spotify passthroughs ----------------------------------------------------
 
 

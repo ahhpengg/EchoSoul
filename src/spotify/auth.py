@@ -23,9 +23,11 @@ Public surface (also the Spotify half of the PyWebView bridge):
 
 from __future__ import annotations
 
+import base64
 import os
 import secrets
 import webbrowser
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -63,28 +65,51 @@ SPOTIFY_SCOPES = [
 # One process-wide cache handler; both login and refresh share it.
 CACHE_HANDLER = KeyringCacheHandler()
 
-# Branded page shown in the browser tab after the redirect lands.
-_CALLBACK_PAGE = """<!DOCTYPE html>
+# Branded page shown in the browser tab after the redirect lands. Colours match
+# the app's "Vibe Canvas" theme (frontend/js/tailwind-config.js): background,
+# primary purple for the title, on-surface-variant for body text. %LOGO% is
+# replaced by _callback_page() (str.format would trip over the CSS braces).
+_LOGO_PATH = Path(__file__).resolve().parents[2] / "frontend" / "assets" / "img" / "logo-96.png"
+
+_CALLBACK_PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>EchoSoul - Spotify connected</title>
   <style>
-    body { font-family: system-ui, -apple-system, sans-serif; background: #121212;
-           color: #fff; margin: 0; height: 100vh; display: flex;
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0b1326;
+           color: #dae2fd; margin: 0; height: 100vh; display: flex;
            align-items: center; justify-content: center; }
     .card { text-align: center; }
-    h1 { color: #1DB954; margin-bottom: .5rem; }
-    p { color: #b3b3b3; }
+    .logo { width: 96px; height: 96px; margin-bottom: 1rem; }
+    h1 { color: #ddb7ff; margin: 0 0 .5rem; }
+    p { color: #cfc2d6; }
   </style>
 </head>
 <body>
   <div class="card">
+    %LOGO%
     <h1>EchoSoul</h1>
     <p>Spotify connected. You can close this tab and return to the app.</p>
   </div>
 </body>
 </html>"""
+
+
+@lru_cache(maxsize=1)
+def _callback_page() -> bytes:
+    """Render the callback page with the EchoSoul logo inlined as a data URI.
+
+    The one-shot callback server answers exactly one request, so the page must
+    be fully self-contained — it cannot serve a follow-up image request.
+    """
+    logo_tag = ""
+    try:
+        b64 = base64.b64encode(_LOGO_PATH.read_bytes()).decode("ascii")
+        logo_tag = f'<img class="logo" src="data:image/png;base64,{b64}" alt="EchoSoul logo">'
+    except OSError:
+        pass  # cosmetic only — render the page without the logo
+    return _CALLBACK_PAGE_TEMPLATE.replace("%LOGO%", logo_tag).encode("utf-8")
 
 
 def _pkce_manager() -> SpotifyPKCE:
@@ -116,7 +141,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.server.auth_code = params.get("code", [None])[0]  # type: ignore[attr-defined]
         self.server.auth_state = params.get("state", [None])[0]  # type: ignore[attr-defined]
         self.server.auth_error = params.get("error", [None])[0]  # type: ignore[attr-defined]
-        body = _CALLBACK_PAGE.encode("utf-8")
+        body = _callback_page()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))

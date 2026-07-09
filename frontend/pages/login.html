@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>EchoSoul - Login with Spotify</title>
+  <!--
+    Pre-auth page: no chrome.js (sidebar / player need a logged-in session).
+    js/login.js drives the PKCE flow via the bridge (docs/SPOTIFY_INTEGRATION.md).
+  -->
+  <link rel="stylesheet" href="../css/fonts.css">
+  <link rel="stylesheet" href="../css/app.css">
+  <script src="../js/vendor/tailwind.js"></script>
+  <script src="../js/tailwind-config.js"></script>
+  <script type="module" src="../js/login.js"></script>
+</head>
+<body data-page="login" class="bg-background text-on-surface font-body-md min-h-screen overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+
+  <main class="h-screen flex flex-col items-center justify-center relative px-4">
+    <div class="absolute inset-0 pointer-events-none overflow-hidden z-0 flex items-center justify-center opacity-30">
+      <div class="w-[600px] h-[600px] bg-primary-container rounded-full blur-[120px] mix-blend-screen opacity-20"></div>
+      <div class="w-[400px] h-[400px] bg-tertiary-container rounded-full blur-[100px] mix-blend-screen opacity-10 absolute top-1/4 right-1/4"></div>
+    </div>
+
+    <div class="z-10 glass-panel rounded-xl px-8 py-12 md:px-14 max-w-lg w-full flex flex-col items-center text-center gap-6 animate-fade-in-up">
+      <div class="w-20 h-20 rounded-xl flex items-center justify-center shadow-[0_0_30px_rgba(183,109,255,0.35)]">
+        <img src="../assets/img/logo.png" alt="EchoSoul logo" class="w-full h-full object-contain">
+      </div>
+
+      <div>
+        <h1 class="text-headline-lg font-headline-lg font-bold text-primary tracking-tight">Welcome to EchoSoul</h1>
+        <p class="text-body-md font-body-md text-on-surface-variant mt-2">Scan your mood, get a playlist that matches it — streamed through your Spotify account.</p>
+      </div>
+
+      <button id="login-btn" class="mt-2 w-full max-w-xs flex items-center justify-center gap-3 px-8 py-3.5 rounded-full bg-[#1DB954] text-[#062012] font-label-md font-bold shadow-lg hover:scale-105 hover:brightness-110 transition-all disabled:opacity-50 disabled:hover:scale-100 disabled:hover:brightness-100 disabled:cursor-not-allowed">
+        <!-- Black Spotify glyph: official style on the green brand button (owner-supplied asset) -->
+        <img src="../assets/img/spotify-black.png" alt="" class="w-6 h-6 object-contain" onerror="this.style.display='none'">
+        Continue with Spotify
+      </button>
+
+      <p id="login-status" class="text-label-md font-label-md text-on-surface-variant min-h-[1.5rem]" role="status"></p>
+
+      <div class="flex items-start gap-2 text-left border-t border-white/10 pt-5">
+        <span class="material-symbols-outlined text-primary text-[20px] shrink-0" style="font-variation-settings:'FILL' 1;">workspace_premium</span>
+        <p class="text-label-sm font-label-sm text-on-surface-variant">A <span class="text-on-surface font-bold">Spotify Premium</span> account is required — Spotify only allows in-app streaming for Premium subscribers. Login opens in your web browser; return here when you're done.</p>
+      </div>
+    </div>
+  </main>
+  <script src="../js/titlebar.js"></script>
+</body>
+</html>

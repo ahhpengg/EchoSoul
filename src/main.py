@@ -31,6 +31,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from src.api import BridgeApi  # noqa: E402
+from src.api.bridge import MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH  # noqa: E402
 from src.db import connection  # noqa: E402
 from src.fer import inference  # noqa: E402
 
@@ -40,7 +41,10 @@ FRONTEND_INDEX = _REPO_ROOT / "frontend" / "index.html"
 WINDOW_TITLE = "EchoSoul"
 WINDOW_WIDTH = 1280  # design target 1280×800 (docs/FRONTEND.md "Styling notes")
 WINDOW_HEIGHT = 800
-MIN_SIZE = (800, 600)  # responsive floor is ≈700 px wide; stay safely above it
+# Responsive floor is ≈700 px wide; stay safely above it. Shared with the
+# bridge because the custom edge-resize drag enforces the same minimum.
+MIN_SIZE = (MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
+WINDOW_ICON = _REPO_ROOT / "frontend" / "assets" / "img" / "app.ico"  # generated from logo.png
 
 
 def _check_database() -> None:
@@ -74,6 +78,76 @@ def _warm_up_model() -> None:
         logger.error("FER model unavailable — camera flow will fail: %s", exc)
 
 
+def _set_windows_app_identity() -> None:
+    """Give the process its own taskbar identity on Windows.
+
+    Without an explicit AppUserModelID, Windows groups the window under
+    python.exe and shows the Python icon in the taskbar regardless of the
+    window's own icon.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("EchoSoul.App")
+
+
+def _set_window_icon(window: webview.Window) -> None:
+    """Set the title-bar/taskbar icon on the native window.
+
+    pywebview's own ``icon`` option is GTK/QT-only, so on Windows (WinForms
+    backend) we set ``Form.Icon`` through pythonnet instead. Two rules apply:
+    the native form must exist (wait for the ``shown`` event — this function
+    runs on pywebview's worker thread, possibly before the GUI loop built the
+    window), and WinForms UI members may only be touched from the UI thread
+    (marshal the assignment with ``Form.Invoke``). Purely cosmetic: any failure
+    logs and the app carries on.
+    """
+    if not WINDOW_ICON.exists():
+        logger.warning("Window icon missing: %s", WINDOW_ICON)
+        return
+    try:
+        window.events.shown.wait(15)
+
+        from System import Action  # pythonnet; loaded by pywebview's WinForms backend
+        from System.Drawing import Icon
+
+        form = window.native
+
+        def apply_icon() -> None:
+            form.Icon = Icon(str(WINDOW_ICON))
+
+        form.Invoke(Action(apply_icon))
+        logger.info("Window icon applied.")
+    except Exception as exc:  # noqa: BLE001 — cosmetic; never let the icon kill the app
+        logger.warning("Could not set the window icon: %s", exc)
+
+
+def _round_corners(window: webview.Window) -> None:
+    """Windows 11: round the frameless window's corners.
+
+    A ``FormBorderStyle.None`` window loses DWM's automatic rounding, so ask
+    for it explicitly (DWMWA_WINDOW_CORNER_PREFERENCE=33, DWMWCP_ROUND=2).
+    Silently does nothing on Windows 10, which ignores the attribute.
+    """
+    try:
+        import ctypes
+
+        window.events.shown.wait(15)
+        hwnd = window.native.Handle.ToInt64()
+        preference = ctypes.c_int(2)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(preference), 4)
+    except Exception as exc:  # noqa: BLE001 — cosmetic; never let corners kill the app
+        logger.warning("Could not round the window corners: %s", exc)
+
+
+def _on_start(window: webview.Window) -> None:
+    """Post-start tasks, run by pywebview on a worker thread."""
+    _set_window_icon(window)
+    _round_corners(window)
+    _warm_up_model()
+
+
 def main() -> None:
     """Start the EchoSoul desktop app."""
     logging.basicConfig(
@@ -84,19 +158,27 @@ def main() -> None:
     debug = os.environ.get("ECHOSOUL_DEBUG", "0").lower() in {"1", "true", "yes"}
 
     _check_database()
+    _set_windows_app_identity()
 
-    webview.create_window(
+    api = BridgeApi()
+    # frameless: the OS title bar is replaced by the in-page one (js/titlebar.js
+    # + the window_* bridge methods). easy_drag stays off — only elements with
+    # the `pywebview-drag-region` class drag the window, not the whole page.
+    window = webview.create_window(
         WINDOW_TITLE,
         url=FRONTEND_INDEX.as_uri(),
-        js_api=BridgeApi(),
+        js_api=api,
         width=WINDOW_WIDTH,
         height=WINDOW_HEIGHT,
         min_size=MIN_SIZE,
+        frameless=True,
+        easy_drag=False,
     )
+    api._bind_window(window)
     # private_mode=False so localStorage and cookies persist across runs — the
     # Spotify Web Playback SDK keeps state in localStorage
     # (docs/SPOTIFY_INTEGRATION.md, "SDK + PyWebView gotchas").
-    webview.start(func=_warm_up_model, debug=debug, private_mode=False)
+    webview.start(func=_on_start, args=(window,), debug=debug, private_mode=False)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+  <title>EchoSoul - Spotify Premium Required</title>
+  <!--
+    Hard block for Free accounts (docs/SPOTIFY_INTEGRATION.md > Premium
+    verification): the Web Playback SDK produces no audio for Free users, so
+    the auth gate routes here instead of letting playback fail silently.
+    Pre-auth-style page: no chrome.js.
+  -->
+  <link rel="stylesheet" href="../css/fonts.css">
+  <link rel="stylesheet" href="../css/app.css">
+  <script src="../js/vendor/tailwind.js"></script>
+  <script src="../js/tailwind-config.js"></script>
+  <script type="module" src="../js/premium_required.js"></script>
+</head>
+<body data-page="premium" class="bg-background text-on-surface font-body-md min-h-screen overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+
+  <main class="h-screen flex flex-col items-center justify-center relative px-4">
+    <div class="absolute inset-0 pointer-events-none overflow-hidden z-0 flex items-center justify-center opacity-30">
+      <div class="w-[600px] h-[600px] bg-primary-container rounded-full blur-[120px] mix-blend-screen opacity-20"></div>
+      <div class="w-[400px] h-[400px] bg-tertiary-container rounded-full blur-[100px] mix-blend-screen opacity-10 absolute top-1/4 right-1/4"></div>
+    </div>
+
+    <div class="z-10 glass-panel rounded-xl px-8 py-12 md:px-14 max-w-lg w-full flex flex-col items-center text-center gap-6 animate-fade-in-up">
+      <div class="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+        <!-- Green Spotify glyph: official style on dark surfaces (owner-supplied asset) -->
+        <img src="../assets/img/spotify-green.png" alt="Spotify" class="w-8 h-8 object-contain" onerror="this.style.display='none'">
+      </div>
+
+      <div>
+        <h1 class="text-headline-md font-headline-md font-bold text-white tracking-tight whitespace-nowrap">Spotify Premium required</h1>
+        <p class="text-body-md font-body-md text-on-surface-variant text-justify [text-align-last:center] mt-2">EchoSoul streams music through Spotify's Web Playback SDK, which Spotify only enables for <span class="text-on-surface font-bold">Premium</span> subscribers. Your account doesn't have Premium yet, so playback would stay silent.</p>
+      </div>
+
+      <p id="account-line" class="text-label-sm font-label-sm text-on-surface-variant" role="status"></p>
+
+      <div class="w-full flex flex-col items-center gap-3">
+        <button id="upgrade-btn" class="w-full max-w-xs px-8 py-3.5 rounded-full bg-[#1DB954] text-[#062012] font-label-md font-bold shadow-lg hover:scale-105 hover:brightness-110 transition-all">Get Spotify Premium</button>
+        <button id="recheck-btn" class="w-full max-w-xs px-8 py-3 rounded-full bg-white text-background font-label-md font-bold hover:scale-105 transition-transform">I've upgraded — check again</button>
+        <button id="switch-btn" class="text-label-md font-label-md text-on-surface-variant hover:text-primary underline underline-offset-4 transition-colors mt-1">Use a different account</button>
+      </div>
+
+      <p id="premium-status" class="text-label-sm font-label-sm text-error min-h-[1rem]" role="alert"></p>
+    </div>
+  </main>
+  <script src="../js/titlebar.js"></script>
+</body>
+</html>
