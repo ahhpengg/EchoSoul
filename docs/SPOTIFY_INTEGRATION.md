@@ -220,11 +220,28 @@ If `keyring` fails (e.g. headless Linux without Secret Service), fall back to a 
 ```python
 def get_valid_access_token() -> str:
     auth = get_pkce_manager(open_browser=False)
-    token_info = auth.get_cached_token()  # reads cache, refreshes if near expiry
+    try:
+        token_info = auth.get_cached_token()  # reads cache, refreshes if near expiry
+    except SpotifyOauthError as exc:
+        if exc.error == "invalid_grant":          # refresh token revoked/expired
+            raise SpotifySessionExpiredError() from exc
+        raise                                     # config bug (bad client id) — surface raw
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+        raise SpotifyNetworkError() from exc
     if not token_info:
         raise RuntimeError("No Spotify session; call start_login_flow() first.")
     return token_info["access_token"]
 ```
+
+Refresh failures are classified into typed exceptions (`src/spotify/auth.py`) so the frontend can show a specific notice instead of a generic one:
+
+| Exception | Underlying cause | User-facing message says |
+|---|---|---|
+| `SpotifySessionExpiredError` | Token endpoint answered `invalid_grant` — refresh token revoked (user removed the app at spotify.com/account/apps) or expired | Session expired/revoked, log in again |
+| `SpotifyNetworkError` | `requests` `ConnectionError`/`Timeout` — offline, DNS failure, Spotify down. Also raised by `verify_premium()` when `/me` is unreachable | Check your internet connection, try again |
+| `SpotifyUserNotRegisteredError` (in `account.py`) | `/me` → 403: account not in the Development-Mode allowlist | Account isn't authorized, ask the app owner |
+
+pywebview turns a raised Python exception into a rejected JS promise with `error.name = type(e).__name__`, which is how `auth_gate.js` picks the message (see `docs/FRONTEND.md` > auth gate). Anything not in that table falls back to the generic "couldn't restore your session" notice.
 
 `SpotifyPKCE.get_cached_token()` reads the stored token via the cache handler
 and refreshes it (using the refresh token) when it is within 60 s of expiry —
@@ -255,11 +272,17 @@ import spotipy
 def verify_premium() -> dict:
     """
     Returns {'premium': bool, 'product': str, 'display_name': str, 'email': str|None}.
-    Raises if no valid token.
+    Raises RuntimeError if no valid token; SpotifyUserNotRegisteredError if the
+    account is not in the app's Development-Mode allowlist (/me returned 403).
     """
     token = get_valid_access_token()
     sp = spotipy.Spotify(auth=token)
-    me = sp.current_user()
+    try:
+        me = sp.current_user()
+    except spotipy.SpotifyException as exc:
+        if exc.http_status == 403:
+            raise SpotifyUserNotRegisteredError() from exc
+        raise
     return {
         "premium": me.get("product") == "premium",
         "product": me.get("product"),
@@ -269,6 +292,8 @@ def verify_premium() -> dict:
 ```
 
 If `premium` is false, the frontend displays a hard block: "This app requires Spotify Premium. Please upgrade your account and try again." Provide a link to Spotify's upgrade page. **Do not** let the user proceed to the home page — the playback will fail and the experience is worse than a clear gate.
+
+> ⚠️ **Development-Mode allowlist (verified empirically, July 2026):** while the Spotify app is in Development Mode, only accounts added under **User Management** in the developer dashboard (max 25) may call the Web API. A non-allowlisted account **completes OAuth normally and receives a token** — the rejection only appears afterwards, as `/me` → 403 "User not registered in the Developer Dashboard". `verify_premium()` translates that 403 into `SpotifyUserNotRegisteredError`; pywebview rejects the JS promise with `error.name` set to the Python class name, which is how the auth gate distinguishes it from transient failures and shows the actionable "account isn't authorized" notice instead of the generic session-restore one. **Every user-study tester's Spotify account must be allowlisted before their session.**
 
 The Premium check runs:
 - Immediately after first OAuth completion.
@@ -482,7 +507,7 @@ All return JSON-serialisable types or raise — the API layer never returns Pyth
 | SDK loads, "ready" fires, then "not_ready" immediately | OAuth scope missing `streaming` | Add scope, re-login |
 | `transferPlaybackHere` returns 403 | Token doesn't have `user-modify-playback-state` | Add scope, re-login |
 | First track plays, second doesn't | Token expired between songs | The `getOAuthToken` callback should refresh; check it's wired up |
-| OAuth dialog says "your account is not allowed" | App is in Development Mode and user is not whitelisted | Invite in dashboard, or accept this limitation |
+| OAuth completes ("connected" page shows) but the gate bounces to login with "account isn't authorized" | App is in Development Mode and the account is not allowlisted — `/me` returns 403 after a successful token exchange | Add the account under **User Management** in the dashboard, log in again |
 
 ---
 

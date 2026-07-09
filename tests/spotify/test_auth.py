@@ -12,6 +12,8 @@ import urllib.request
 from urllib.parse import urlparse
 
 import pytest
+import requests
+from spotipy.exceptions import SpotifyOauthError
 
 from src.spotify import auth
 
@@ -181,6 +183,47 @@ def test_get_valid_access_token_raises_without_session(monkeypatch):
     monkeypatch.setattr(auth, "_pkce_manager", lambda: _FakeManager())
     with pytest.raises(RuntimeError):
         auth.get_valid_access_token()
+
+
+class _RefreshFailingManager(_FakeManager):
+    def __init__(self, exc):
+        super().__init__()
+        self._exc = exc
+
+    def get_cached_token(self):
+        raise self._exc
+
+
+def test_get_valid_access_token_maps_revoked_refresh_token(monkeypatch):
+    revoked = SpotifyOauthError(
+        "error: invalid_grant, error_description: Refresh token revoked",
+        error="invalid_grant",
+    )
+    monkeypatch.setattr(auth, "_pkce_manager", lambda: _RefreshFailingManager(revoked))
+    with pytest.raises(auth.SpotifySessionExpiredError) as excinfo:
+        auth.get_valid_access_token()
+    # Shown verbatim on the login page — must tell the user what to do.
+    assert "log in again" in str(excinfo.value)
+
+
+def test_get_valid_access_token_propagates_other_oauth_errors(monkeypatch):
+    # Non-invalid_grant OAuth errors are config bugs (e.g. bad client id) and
+    # must surface raw, not be disguised as an expired session.
+    bad_client = SpotifyOauthError(
+        "error: invalid_client, error_description: Invalid client",
+        error="invalid_client",
+    )
+    monkeypatch.setattr(auth, "_pkce_manager", lambda: _RefreshFailingManager(bad_client))
+    with pytest.raises(SpotifyOauthError):
+        auth.get_valid_access_token()
+
+
+def test_get_valid_access_token_maps_network_error(monkeypatch):
+    offline = requests.exceptions.ConnectionError("getaddrinfo failed")
+    monkeypatch.setattr(auth, "_pkce_manager", lambda: _RefreshFailingManager(offline))
+    with pytest.raises(auth.SpotifyNetworkError) as excinfo:
+        auth.get_valid_access_token()
+    assert "internet connection" in str(excinfo.value)
 
 
 def test_has_spotify_session(monkeypatch):

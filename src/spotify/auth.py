@@ -32,7 +32,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import requests
 from dotenv import load_dotenv
+from spotipy.exceptions import SpotifyOauthError
 from spotipy.oauth2 import SpotifyPKCE
 
 from src.spotify.keyring_cache import KeyringCacheHandler
@@ -64,6 +66,32 @@ SPOTIFY_SCOPES = [
 
 # One process-wide cache handler; both login and refresh share it.
 CACHE_HANDLER = KeyringCacheHandler()
+
+
+class SpotifySessionExpiredError(RuntimeError):
+    """The cached refresh token was revoked or has expired.
+
+    Spotify's token endpoint answered the refresh attempt with
+    ``invalid_grant`` — only a fresh login can fix this. The class name is the
+    frontend discriminator: pywebview rejects the JS promise with
+    ``error.name == "SpotifySessionExpiredError"``.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Your Spotify session has expired or was revoked. Please log in again.")
+
+
+class SpotifyNetworkError(RuntimeError):
+    """Spotify could not be reached (offline, DNS failure, timeout).
+
+    The cached session is probably still fine — the caller should retry once
+    the connection is back, not log out. Class name doubles as the frontend
+    discriminator, like :class:`SpotifySessionExpiredError`.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("We couldn't reach Spotify. Check your internet connection and try again.")
+
 
 # Branded page shown in the browser tab after the redirect lands. Colours match
 # the app's "Vibe Canvas" theme (frontend/js/tailwind-config.js): background,
@@ -247,9 +275,22 @@ def get_valid_access_token() -> str:
 
     Raises:
         RuntimeError: if there is no cached session (user must log in first).
+        SpotifySessionExpiredError: if the refresh token was revoked/expired.
+        SpotifyNetworkError: if Spotify's token endpoint is unreachable.
     """
     auth = _pkce_manager()
-    token_info = auth.get_cached_token()  # refreshes in-place when expired
+    try:
+        token_info = auth.get_cached_token()  # refreshes in-place when expired
+    except SpotifyOauthError as exc:
+        # The token endpoint answered but rejected the refresh. "invalid_grant"
+        # means the refresh token is revoked/expired — only a fresh login can
+        # fix that. Other OAuth errors (e.g. bad client id) are config bugs and
+        # propagate raw so the real cause reaches the developer.
+        if exc.error == "invalid_grant":
+            raise SpotifySessionExpiredError() from exc
+        raise
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+        raise SpotifyNetworkError() from exc
     if not token_info:
         raise RuntimeError("No Spotify session; call start_login_flow() first.")
     return token_info["access_token"]

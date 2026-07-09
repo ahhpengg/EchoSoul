@@ -8,10 +8,21 @@
  * If the cached session can't be used (refresh token revoked, network down),
  * we do NOT log out — a transient network failure would destroy a perfectly
  * good refresh token. We just route to login with a one-shot notice; a fresh
- * login overwrites the cache anyway.
+ * login overwrites the cache anyway. Known failures show their own actionable
+ * message from Python (see USER_FACING_ERRORS); anything unexpected falls back
+ * to a generic notice.
  */
 
 import { callPy } from "./bridge.js";
+
+// Bridge rejections carry the Python exception class name as error.name
+// (pywebview sets it from type(e).__name__). These classes raise with a
+// message written for the end user, shown verbatim on the login page.
+const USER_FACING_ERRORS = new Set([
+  "SpotifyUserNotRegisteredError", // account not in the app's dev-mode allowlist
+  "SpotifySessionExpiredError", // refresh token revoked/expired — re-login fixes it
+  "SpotifyNetworkError", // offline / Spotify unreachable — retry fixes it
+]);
 
 const statusEl = document.querySelector("#gate-status");
 
@@ -38,10 +49,10 @@ window.addEventListener("load", async () => {
     sessionStorage.setItem("spotify_profile", JSON.stringify(profile));
     window.location.replace("pages/home.html");
   } catch (err) {
-    sessionStorage.setItem(
-      "login_notice",
-      "We couldn't restore your Spotify session. Please log in again.",
-    );
+    const notice = USER_FACING_ERRORS.has(err?.name)
+      ? err.message
+      : "We couldn't restore your Spotify session. Please log in again.";
+    sessionStorage.setItem("login_notice", notice);
     window.location.replace("pages/login.html");
   }
 });

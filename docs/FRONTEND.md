@@ -210,6 +210,16 @@ Single responsibility: check session state and redirect.
 // frontend/js/auth_gate.js (as-built; the module adds a status line)
 import { callPy } from "./bridge.js";
 
+// Bridge rejections carry the Python exception class name as error.name
+// (pywebview sets it from type(e).__name__). These classes raise with a
+// user-facing message, shown verbatim on the login page — see
+// docs/SPOTIFY_INTEGRATION.md > Refresh for the full table.
+const USER_FACING_ERRORS = new Set([
+  "SpotifyUserNotRegisteredError", // account not in the app's dev-mode allowlist
+  "SpotifySessionExpiredError", // refresh token revoked/expired — re-login fixes it
+  "SpotifyNetworkError", // offline / Spotify unreachable — retry fixes it
+]);
+
 window.addEventListener("load", async () => {
   try {
     if (!(await callPy("has_spotify_session"))) {
@@ -225,11 +235,15 @@ window.addEventListener("load", async () => {
     sessionStorage.setItem("spotify_profile", JSON.stringify(profile));
     window.location.replace("pages/home.html");
   } catch (err) {
-    // Session unusable (revoked token, network down). Deliberately NOT calling
-    // logout — a transient network failure must not destroy a good refresh
-    // token. A fresh login overwrites the cache anyway.
-    sessionStorage.setItem("login_notice",
-      "We couldn't restore your Spotify session. Please log in again.");
+    // Session unusable. Deliberately NOT calling logout — a transient network
+    // failure must not destroy a good refresh token. A fresh login overwrites
+    // the cache anyway. Known failures (allowlist rejection, revoked refresh
+    // token, network down) show their own actionable message from Python;
+    // anything unexpected falls back to the generic notice.
+    const notice = USER_FACING_ERRORS.has(err?.name)
+      ? err.message
+      : "We couldn't restore your Spotify session. Please log in again.";
+    sessionStorage.setItem("login_notice", notice);
     window.location.replace("pages/login.html");
   }
 });
@@ -272,7 +286,7 @@ els.loginBtn.addEventListener("click", async () => {
 });
 ```
 
-The page also shows the one-shot `sessionStorage.login_notice` left by the auth gate (e.g. "couldn't restore your session").
+The page also shows the one-shot `sessionStorage.login_notice` left by the auth gate — a specific notice where the cause is known (account not allowlisted, session expired/revoked, Spotify unreachable; see `docs/SPOTIFY_INTEGRATION.md` > Refresh) or the generic "couldn't restore your session" otherwise.
 
 ### `premium_required.html`
 
