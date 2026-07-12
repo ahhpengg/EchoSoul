@@ -62,7 +62,6 @@ frontend/
     ├── titlebar.js         ✅ frameless-window controls (min/max/close + drag regions); loads after chrome.js
     ├── home.js             ✅ hero zoom + manual-mood / scan navigation + live "latest saved playlist" showcase
     ├── mood.js             ✅ mood-card selection → loading
-    ├── photo.js            ✅ capture → loading (webcam wiring pending)
     ├── loading.js          ✅ auto-advance to result (inference wiring pending)
     ├── result.js           ✅ per-emotion placeholder content + live saved-playlist view (#playlist=<id>)
     ├── shader.js           ✅ optional WebGL "Vibe Canvas" background (opt-in)
@@ -72,7 +71,7 @@ frontend/
     ├── premium_required.js ✅ premium gate: upgrade link (system browser), re-check, logout
     ├── sidebar.js          ✅ saved-playlists sidebar — live data (open / rename / delete via kebab menu)
     ├── playlists_ui.js     ✅ shared tracklist-row / duration / emotion-theme helpers (home, result, sidebar)
-    ├── camera.js           ⬜ webcam preview + capture
+    ├── camera.js           ✅ webcam preview + 2 Hz face guide (quick_face_check) + capture/retake/use (replaced photo.js)
     ├── playback.js         ⬜ Spotify SDK initialisation + playback control (replaces the placeholder bottom player rendered by chrome.js)
     └── error_handler.js    ⬜ maps error codes to user-facing messages
 ```
@@ -338,57 +337,34 @@ open `result.html#playlist=<id>`.
 
 ### `photo.html`
 
-Two states:
-1. **Preview** — live webcam feed with a centred oval guide. A face-detection ping every 500 ms updates the guide's colour: red (no face / multiple), green (one face). Shutter button enabled only when green.
-2. **Captured** — frozen frame, "Use this" and "Retake" buttons.
+Two states, as-built in `js/camera.js` (which replaced the placeholder `photo.js`):
 
-```html
-<video id="webcam-preview" autoplay muted playsinline></video>
-<canvas id="capture-canvas" hidden></canvas>
-<svg id="face-guide" viewBox="0 0 100 100">
-  <ellipse cx="50" cy="50" rx="30" ry="40" class="guide-outline" />
-</svg>
-<button id="shutter" disabled>📷 Take Photo</button>
-<p id="instructions">
-  Centre your face. Remove glasses, masks, and obstructions.
-</p>
-```
+1. **Preview** — `getUserMedia` (1280×720 ideal, user-facing) streams into
+   `#webcam-preview`, mirrored via CSS for a natural selfie view (the captured
+   data itself is **not** mirrored). Every 500 ms a ≤320 px JPEG frame goes to
+   `quick_face_check` and the oval guide (`#face-guide`) turns green (exactly
+   one face) or red (none / several); the status line under the viewfinder
+   explains, and `#capture-btn` is enabled only on green. The loop is a
+   chained `setTimeout` with an in-flight guard — never more than one ping on
+   the bridge at once, so slow calls (e.g. FER warm-up holding the lock) can't
+   pile up; each ping has a 5 s timeout and a failed ping just locks the
+   shutter and keeps trying.
+2. **Captured** — the shutter grabs the **full-resolution frame as lossless
+   PNG** (JPEG artefacts could distort facial features — see
+   `docs/IMAGE_PIPELINE.md`), freezes it in `#captured-preview`, and shows
+   **Retake** / **Use this photo**. "Use" stashes the base64 payload in
+   `sessionStorage.captured_image_b64` with `emotion_source = "camera"` and
+   navigates to `loading.html`, which runs `detect_emotion` (F6 wiring).
 
-```javascript
-// frontend/js/camera.js
-async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { width: 1280, height: 720, facingMode: "user" },
-    audio: false,
-  });
-  const video = document.querySelector("#webcam-preview");
-  video.srcObject = stream;
-  return stream;
-}
+Camera lifecycle: the stream stops on `pagehide` (the camera light never stays
+on after leaving the page) and before navigating to loading. If the camera
+can't start (permission denied / no device), the status line says why and a
+"Try camera again" button appears; the shutter stays disabled.
 
-// Lightweight face-detection ping (uses the same Python bridge)
-async function checkFacePresence() {
-  const dataUrl = captureFrame(); // downscaled for speed
-  const result = await callPy("quick_face_check", dataUrl.split(",")[1]);
-  // result.face_count: 0 | 1 | 2+
-  updateGuideColour(result.face_count);
-  document.querySelector("#shutter").disabled = result.face_count !== 1;
-}
-
-setInterval(checkFacePresence, 500);  // 2 Hz
-```
-
-Python side needs a corresponding lightweight bridge method:
-
-```python
-def quick_face_check(self, b64: str) -> dict:
-    img = decode_image(b64)
-    img = maybe_downsample(img, max_dim=320)  # extra-aggressive downsample for speed
-    faces = detect_faces(img)
-    return {"face_count": len(faces)}
-```
-
-This adds latency overhead from the bridge call but the user gets useful real-time feedback. If the bridge call latency proves problematic (> 100 ms each), do face detection client-side via the lighter `face-api.js` or browser-native `FaceDetector` (Chromium has experimental support).
+The live guide is purely a UI aid — the authoritative single-face gate and
+quality checks still run inside `detect_emotion` on the shutter frame. If the
+2 Hz ping ever proves too slow on target hardware, fall back to client-side
+detection (browser `FaceDetector` / face-api.js) — not needed so far.
 
 ### `mood.html`
 

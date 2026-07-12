@@ -29,11 +29,14 @@
 
       <!-- Camera Viewfinder -->
       <div class="relative w-full aspect-[4/3] md:aspect-video rounded-xl overflow-hidden glass-panel shadow-[0_0_40px_rgba(183,109,255,0.15)] group">
-        <!-- Placeholder feed (replaced by the live <video> when the camera is wired) -->
-        <div class="absolute inset-0 bg-gradient-to-br from-surface-container-high via-surface-container to-surface-container-lowest flex items-center justify-center">
+        <!-- Shown until the webcam stream starts (and when no camera is available) -->
+        <div id="camera-placeholder" class="absolute inset-0 bg-gradient-to-br from-surface-container-high via-surface-container to-surface-container-lowest flex items-center justify-center">
           <span class="material-symbols-outlined text-on-surface-variant/40" style="font-size: 120px;">face</span>
         </div>
-        <video id="webcam-preview" class="absolute inset-0 w-full h-full object-cover hidden" autoplay muted playsinline></video>
+        <!-- Preview and frozen frame are mirrored for a natural selfie view;
+             the captured data itself is NOT mirrored (camera.js grabs the raw frame). -->
+        <video id="webcam-preview" class="absolute inset-0 w-full h-full object-cover hidden" style="transform: scaleX(-1);" autoplay muted playsinline></video>
+        <img id="captured-preview" class="absolute inset-0 w-full h-full object-cover hidden" style="transform: scaleX(-1);" alt="Captured frame">
 
         <!-- Viewfinder Corner Markers -->
         <div class="absolute inset-container-padding pointer-events-none">
@@ -44,21 +47,41 @@
         </div>
 
         <!-- Scanning Animation Line -->
-        <div class="scanner-line"></div>
+        <div id="scanner-line" class="scanner-line"></div>
 
-        <!-- Detection Overlay (Simulated) -->
+        <!-- Live face guide: camera.js colours it green (one face) / red (none or several) -->
         <div class="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-          <div class="w-48 h-64 border border-primary/30 rounded-[100px] flex items-center justify-center">
-            <div class="w-full h-full border border-primary/20 rounded-[100px] scale-90"></div>
+          <div id="face-guide" class="w-48 h-64 border border-primary/30 rounded-[100px] flex items-center justify-center transition-colors duration-300">
+            <div id="face-guide-inner" class="w-full h-full border border-primary/20 rounded-[100px] scale-90 transition-colors duration-300"></div>
           </div>
         </div>
       </div>
 
+      <!-- Live status line (face check / camera errors) -->
+      <p id="face-status" class="text-label-md font-label-md text-on-surface-variant text-center">Starting camera…</p>
+
       <!-- Controls -->
       <div class="flex flex-col items-center gap-stack-md w-full max-w-[400px] mt-4">
-        <button id="capture-btn" class="w-full py-4 bg-primary hover:bg-primary-fixed text-on-primary rounded-full text-body-lg font-body-lg font-semibold transition-all duration-300 shadow-[0_0_20px_rgba(221,183,255,0.3)] hover:shadow-[0_0_30px_rgba(221,183,255,0.5)] hover:-translate-y-1 active:translate-y-0 flex justify-center items-center gap-2">
+        <button id="capture-btn" disabled class="w-full py-4 bg-primary hover:bg-primary-fixed text-on-primary rounded-full text-body-lg font-body-lg font-semibold transition-all duration-300 shadow-[0_0_20px_rgba(221,183,255,0.3)] hover:shadow-[0_0_30px_rgba(221,183,255,0.5)] hover:-translate-y-1 active:translate-y-0 flex justify-center items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0">
           <span class="material-symbols-outlined">photo_camera</span>Capture
         </button>
+        <!-- Captured state: shown by camera.js after the shutter fires -->
+        <div id="captured-actions" class="hidden w-full">
+          <div class="flex flex-col sm:flex-row gap-3 w-full">
+            <button id="retake-btn" class="flex-1 py-4 rounded-full border border-outline-variant text-on-surface text-body-lg font-body-lg font-semibold hover:bg-white/5 transition-all flex justify-center items-center gap-2">
+              <span class="material-symbols-outlined">refresh</span>Retake
+            </button>
+            <button id="use-photo-btn" class="flex-1 py-4 bg-primary hover:bg-primary-fixed text-on-primary rounded-full text-body-lg font-body-lg font-semibold transition-all duration-300 shadow-[0_0_20px_rgba(221,183,255,0.3)] hover:shadow-[0_0_30px_rgba(221,183,255,0.5)] hover:-translate-y-1 active:translate-y-0 flex justify-center items-center gap-2">
+              <span class="material-symbols-outlined">check</span>Use this photo
+            </button>
+          </div>
+        </div>
+        <!-- Shown only when the camera could not be started -->
+        <div id="camera-retry" class="hidden w-full">
+          <button id="retry-camera-btn" class="w-full py-3 rounded-full border border-outline-variant text-on-surface text-label-md font-label-md hover:bg-white/5 transition-all flex justify-center items-center gap-2">
+            <span class="material-symbols-outlined">refresh</span>Try camera again
+          </button>
+        </div>
       </div>
     </div>
   </main>
@@ -66,6 +89,6 @@
   <script src="../js/chrome.js"></script>
   <script src="../js/titlebar.js"></script>
   <script type="module" src="../js/sidebar.js"></script>
-  <script src="../js/photo.js"></script>
+  <script type="module" src="../js/camera.js"></script>
 </body>
 </html>
