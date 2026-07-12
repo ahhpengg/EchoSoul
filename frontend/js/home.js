@@ -40,10 +40,16 @@ document.getElementById("manual-mood-btn")?.addEventListener("click", () => {
 
 // The quick emotion chips are a shortcut: each one is already a specific
 // emotion, so skip the mood page and go straight through loading -> result.
+// Manual picks skip inference, so drop any capture left over from an
+// abandoned photo run rather than keep a multi-MB PNG in sessionStorage.
+let moodPicked = false;
 document.querySelectorAll(".mood-chip").forEach((chip) => {
   chip.addEventListener("click", () => {
+    if (moodPicked) return; // already navigating; a second chip must not win
+    moodPicked = true;
     sessionStorage.setItem("last_emotion", chip.dataset.emotion);
     sessionStorage.setItem("emotion_source", "manual");
+    sessionStorage.removeItem("captured_image_b64");
     window.location.assign("loading.html");
   });
 });

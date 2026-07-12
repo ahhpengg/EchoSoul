@@ -379,15 +379,25 @@ detection (browser `FaceDetector` / face-api.js) — not needed so far.
 ```
 
 ```javascript
-document.querySelectorAll(".mood-btn").forEach(btn => {
-  btn.addEventListener("click", async () => {
-    const emotion = btn.dataset.emotion;
-    sessionStorage.setItem("last_emotion", emotion);
+// frontend/js/mood.js (as-built)
+let picked = false;
+document.querySelectorAll(".mood-card").forEach((card) => {
+  card.addEventListener("click", () => {
+    if (picked) return; // already navigating; a second card must not win
+    picked = true;
+    sessionStorage.setItem("last_emotion", card.dataset.emotion);
     sessionStorage.setItem("emotion_source", "manual");
-    window.location.assign("loading.html?next=result");
+    // Manual picks skip inference — drop any capture left over from an
+    // abandoned photo run (a full-res PNG is multi-MB of sessionStorage).
+    sessionStorage.removeItem("captured_image_b64");
+    window.location.assign("loading.html");
   });
 });
 ```
+
+The quick emotion chips on `home.html` (`.mood-chip` in `home.js`) do exactly
+the same, skipping the mood page entirely. `loading.html` takes no query
+parameter — `loading.js` branches on `sessionStorage.emotion_source` alone.
 
 ### `loading.html`
 
