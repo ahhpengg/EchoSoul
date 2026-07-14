@@ -69,7 +69,7 @@ frontend/
     ├── auth_gate.js        ✅ runs on index.html; routes to login / premium / home
     ├── login.js            ✅ login page: start_spotify_login with a long-timeout bridge call
     ├── premium_required.js ✅ premium gate: upgrade link (system browser), re-check, logout
-    ├── sidebar.js          ✅ saved-playlists sidebar — live data (open / rename / delete via kebab menu)
+    ├── sidebar.js          ✅ saved-playlists sidebar — live data (open / rename / delete via kebab menu, library search, persisted sort menu, emotion filter dropdown)
     ├── playlists_ui.js     ✅ shared tracklist-row / duration / emotion-theme / toast helpers (home, result, sidebar, playback)
     ├── camera.js           ✅ webcam preview + 2 Hz face guide (quick_face_check) + capture/retake/use (replaced photo.js)
     ├── playback.js         ✅ Spotify Web Playback SDK: drives the bottom player, resumes the session across page navigations, exports playTracks() for result.js
@@ -128,13 +128,14 @@ page. They are now defined **once** in `js/chrome.js` and injected per page.
   synchronously during body parse, so the injected nodes exist (and are present
   at `DOMContentLoaded`, so Tailwind JIT styles them) before page code runs.
 - Navigation is wired by event delegation on `[data-nav]` (home / scan / back /
-  forward / open-sidebar / close-sidebar). Controls with no backend yet (the
-  player's queue button, the sidebar's Recents row) carry `data-placeholder`
-  and are no-ops for now. The bottom player itself is rendered idle here and
-  driven live by `js/playback.js`; the header search box is rendered here and
-  driven live by `js/search.js` (see *Header search* below); the sidebar's +
-  button opens the create-playlist modal (`js/create_playlist.js`, see *Create
-  playlist modal* below).
+  forward / open-sidebar / close-sidebar). The only control with no backend yet
+  (the player's queue button) carries `data-placeholder` and is a no-op for
+  now. The bottom player itself is rendered idle here and driven live by
+  `js/playback.js`; the header search box is rendered here and driven live by
+  `js/search.js` (see *Header search* below); the sidebar's library controls
+  (search toggle + sort button) are rendered here and driven by `js/sidebar.js`
+  (see *Sidebar* below); the sidebar's + button opens the create-playlist modal
+  (`js/create_playlist.js`, see *Create playlist modal* below).
 - **Responsive:** at `lg` (≥1024px) the layout is the fixed 280px sidebar + main
   canvas. Below `lg` the sidebar becomes an off-canvas drawer toggled by the
   header hamburger (with a dimming backdrop), the main column goes full width
@@ -562,12 +563,52 @@ static prototype copy stays. "Back to Home Page" is a plain `<a href>`.
 
 ## Sidebar (shared across pages)
 
-As-built: `chrome.js` renders the sidebar shell with an empty
-`#sidebar-playlists` container on every chrome page; `js/sidebar.js` (a module
-loaded right after `chrome.js`/`titlebar.js` on all six pages) fills it from
-`list_user_playlists` on every page load (cheap query, newest-updated first).
+As-built: `chrome.js` renders the sidebar shell — a library controls strip
+(`#sidebar-controls`: search toggle + sort button) above an empty
+`#sidebar-playlists` container — on every chrome page; `js/sidebar.js` (a
+module loaded right after `chrome.js`/`titlebar.js` on all six pages) fetches
+the rows from `list_user_playlists` on every page load (cheap query) into
+module state and renders them through the active library filter + sort order.
 The **+** button beside the "Playlists" label (`#sidebar-new-playlist`) opens
 the create-playlist modal (see *Create playlist modal* below).
+
+**Library search** (`#sidebar-search-btn`): clicking the search icon swaps the
+controls strip for a text field (*"Search in your library"* hint) and filters
+the rows live — case-insensitive substring on the playlist **name** only,
+client-side (the rows are already loaded; no bridge call). The ✕ button or
+Esc clears the filter and collapses back to the strip; blurring an **empty**
+field also collapses, but a non-empty filter stays visible so it's obvious why
+the list is short. No matches renders `No playlists match "…"`.
+
+**Filter** (`#sidebar-filter-btn`, funnel icon right of the sort button): opens
+a dropdown of five emotion checkboxes (app order, with the emotion emoji),
+then a separator, a **tri-state Select all** checkbox (unchecking deselects
+all at once; indeterminate while only some are checked) and an **Apply**
+button. Apply is disabled at zero selections (an empty filter that shows
+nothing can never be applied — owner decision, 2026-07-15); applying **all
+five** normalises to "no filter". While a filter is active the funnel turns
+accent-coloured with a checked-count badge, playlists whose `source_emotion`
+is missing/unrecognised are hidden (owner decision — no current creation path
+produces one), and the filter **composes with the library search** (a row must
+match both). Closing the dropdown without Apply discards pending changes. The
+applied filter is **session-only** (`sessionStorage.sidebar_filter` — owner
+decision: survives navigation within a run, but every launch starts unfiltered
+so a forgotten filter can't read as data loss). Empty result shows
+`No playlists match the emotion filter.`
+
+**Sort** (`#sidebar-sort-btn`, label + list icon): opens a menu of four orders
+— **Recently edited** (default; `updated_at` desc — edits, renames and
+add-track all bump it), **Recently created** (`created_at` desc),
+**Alphabetical** (name, case-insensitive, ties by recently-edited) and
+**Emotion** (owner-approved group order happy → surprised → sad → angry →
+neutral, recently-edited within a group; playlists without a recognised
+`source_emotion` sort last). The strip label shows the active order. The
+choice persists across pages and app restarts in `localStorage.sidebar_sort`
+(the webview runs with `private_mode=False`, so localStorage survives). A
+"last played" sort was considered and **dropped** (owner decision, 2026-07-15
+— nothing tracks playlist playback and it wasn't worth the new plumbing).
+Sorting/filtering is all client-side; the backend `list_playlists` query stays
+newest-updated first.
 
 Each row shows the emotion emoji (from `playlists_ui.js`'s `EMOTION_THEMES`;
 `music_note` for user-created playlists without a source emotion), the name and

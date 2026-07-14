@@ -15,16 +15,16 @@
  *   - <  lg: sidebar becomes an off-canvas drawer toggled by the header's
  *     hamburger, dimmed by a backdrop; content goes full width.
  *
- * PLACEHOLDER DATA: only the player's queue button and the sidebar's Recents
- * row are still static. The sidebar playlist list is LIVE: this script renders
- * the empty #sidebar-playlists container and js/sidebar.js (a module loaded
- * after this script) fills it from the Python bridge (list_user_playlists);
- * the sidebar's + button (#sidebar-new-playlist) opens js/create_playlist.js's
- * create-playlist modal. The header search box is LIVE too: this script
- * renders the input + empty dropdown and js/search.js drives them (catalogue
- * search, play, add-to-playlists). The bottom player is rendered idle here and
- * driven live by js/playback.js (Spotify Web Playback SDK). See
- * docs/FRONTEND.md.
+ * PLACEHOLDER DATA: only the player's queue button is still static. The
+ * sidebar playlist list is LIVE: this script renders the empty
+ * #sidebar-playlists container plus the library controls strip (search toggle
+ * + sort button) and js/sidebar.js (a module loaded after this script) drives
+ * them all from the Python bridge (list_user_playlists); the sidebar's +
+ * button (#sidebar-new-playlist) opens js/create_playlist.js's create-playlist
+ * modal. The header search box is LIVE too: this script renders the input +
+ * empty dropdown and js/search.js drives them (catalogue search, play,
+ * add-to-playlists). The bottom player is rendered idle here and driven live
+ * by js/playback.js (Spotify Web Playback SDK). See docs/FRONTEND.md.
  */
 (function () {
   "use strict";
@@ -56,9 +56,10 @@
   const showFooter = cfg.footer && !isFreeUser();
 
   // ---- Sidebar -------------------------------------------------------------
-  // The playlist list itself is filled by js/sidebar.js (live bridge data) and
-  // the "new playlist" + button is driven by js/create_playlist.js; the
-  // search/Recents control is still a placeholder.
+  // The playlist list, the library search toggle and the sort/filter buttons
+  // are all driven by js/sidebar.js (live bridge data); the "new playlist" +
+  // button is driven by js/create_playlist.js. Only the shells are rendered
+  // here.
   function sidebarHTML() {
     const scanBlock = cfg.scan
       ? `<div class="mt-auto pt-6 pb-28">
@@ -89,9 +90,29 @@
           <p class="text-label-sm font-label-sm text-outline-variant uppercase tracking-wider">Playlists</p>
           <button id="sidebar-new-playlist" aria-label="New playlist" title="New playlist" class="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-white/5 hover:text-primary transition-colors"><span class="material-symbols-outlined text-[20px]">add</span></button>
         </div>
-        <div data-placeholder class="flex items-center justify-between px-3 py-2 mb-2 text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
-          <span class="material-symbols-outlined text-[20px]">search</span>
-          <div class="flex items-center gap-2"><span class="text-label-md font-label-md">Recents</span><span class="material-symbols-outlined text-[20px]">list</span></div>
+        <div id="sidebar-controls" class="relative mb-2">
+          <div id="sidebar-controls-row" class="flex items-center justify-between px-1 py-1 text-on-surface-variant">
+            <button id="sidebar-search-btn" aria-label="Search in your library" title="Search in your library" class="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/5 hover:text-on-surface transition-colors">
+              <span class="material-symbols-outlined text-[20px]">search</span>
+            </button>
+            <div class="flex items-center gap-1">
+              <button id="sidebar-sort-btn" aria-label="Sort playlists" title="Sort playlists" class="flex items-center gap-2 px-2 py-1.5 rounded-full hover:bg-white/5 hover:text-on-surface transition-colors">
+                <span id="sidebar-sort-label" class="text-label-sm font-label-sm whitespace-nowrap">Recently edited</span>
+                <span class="material-symbols-outlined text-[20px]">list</span>
+              </button>
+              <button id="sidebar-filter-btn" aria-label="Filter by emotion" title="Filter by emotion" class="relative w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/5 hover:text-on-surface transition-colors">
+                <span class="material-symbols-outlined text-[18px]">filter_alt</span>
+                <span id="sidebar-filter-badge" class="hidden absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 rounded-full bg-primary text-background text-[10px] font-bold leading-4 text-center"></span>
+              </button>
+            </div>
+          </div>
+          <div id="sidebar-search-wrap" class="hidden relative px-1 py-1">
+            <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px] pointer-events-none">search</span>
+            <input id="sidebar-search" type="text" autocomplete="off" spellcheck="false" placeholder="Search in your library" class="w-full bg-surface-container-high border-none rounded-full py-2 pl-10 pr-9 text-label-md font-label-md text-on-surface placeholder:text-on-surface-variant focus:ring-1 focus:ring-primary">
+            <button id="sidebar-search-clear" aria-label="Clear search" class="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors">
+              <span class="material-symbols-outlined text-[16px]">close</span>
+            </button>
+          </div>
         </div>
         <div id="sidebar-playlists" class="flex flex-col gap-[2px]">
           <p class="px-3 py-2 text-label-sm font-label-sm text-on-surface-variant opacity-60">Loading playlists…</p>
