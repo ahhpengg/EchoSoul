@@ -127,9 +127,10 @@ page. They are now defined **once** in `js/chrome.js` and injected per page.
   at `DOMContentLoaded`, so Tailwind JIT styles them) before page code runs.
 - Navigation is wired by event delegation on `[data-nav]` (home / scan / back /
   forward / open-sidebar / close-sidebar). Controls with no backend yet (the
-  search box, the player's queue button) carry `data-placeholder` and are
-  no-ops for now. The bottom player itself is rendered idle here and driven
-  live by `js/playback.js`.
+  player's queue button, the sidebar's Recents row) carry `data-placeholder`
+  and are no-ops for now. The bottom player itself is rendered idle here and
+  driven live by `js/playback.js`; the header search box is rendered here and
+  driven live by `js/search.js` (see *Header search* below).
 - **Responsive:** at `lg` (≥1024px) the layout is the fixed 280px sidebar + main
   canvas. Below `lg` the sidebar becomes an off-canvas drawer toggled by the
   header hamburger (with a dimming backdrop), the main column goes full width
@@ -511,7 +512,8 @@ Buttons under the title:
   `update_playlist(playlist_id, name, description, track_ids)` — a full
   replace, so removals repack positions — then refreshes the sidebar.
   `update_playlist` returning false (deleted from the sidebar mid-edit)
-  routes home. Cancel discards. Adding tracks (search) stays a stretch goal.
+  routes home. Cancel discards. Adding tracks happens via the header search
+  (see *Header search*), not inside edit mode.
 
 Toasts are a DIY 10-liner shared from playlists_ui.js (PyWebView has no reliable
 `alert()`): a fixed bottom-centre pill that fades after ~2 s.
@@ -586,6 +588,36 @@ email, Premium/Free badge — with a **Log out** button that calls the `logout`
 bridge method (directly via `pywebview.api`, since `chrome.js` is a plain
 script) and returns to `login.html`. The notifications button was removed
 (owner decision, July 2026).
+
+### Header search (js/search.js)
+
+`chrome.js` renders the search input (`#header-search`) plus an empty dropdown
+container (`#search-dropdown`) in the full header; `js/search.js` (a module on
+the five full-header pages — home / mood / loading / result / error) drives
+them. The photo page's "back" header has no search box, so the module no-ops
+there.
+
+- **As-you-type search:** 250 ms debounce, minimum 2 characters, stale-response
+  guard (only the latest call may render). Calls the `search_tracks` bridge
+  method — FULLTEXT word-prefix match on title + artists, most popular first,
+  10 results (see `docs/DATABASE.md` § "Track search"). States: "Searching…",
+  results, `No songs found for "q"`, and an error message if the bridge call
+  rejects. Esc or clicking outside closes the dropdown; refocusing the input
+  with the same text re-opens the cached results.
+- **Row click = play.** Premium: `playTracks([track_id])` (single-track queue
+  on the SDK device, toast on failure). Free: opens the song in Spotify via
+  `openInSpotify` (same degradation as the tracklists).
+- **Add button (playlist_add icon)** opens a modal popup listing every saved
+  playlist (`list_user_playlists`) as a checkbox row (emotion emoji, name,
+  song count). Playlists already containing the song
+  (`get_playlists_containing_track`) are shown **checked and disabled** with an
+  "Added" hint. Confirm calls `add_track_to_playlists` — the song lands at the
+  end of each chosen playlist and each one's `updated_at` is bumped (the
+  sidebar re-sorts). On success: transient toast (`Added to N playlists`),
+  `refreshSidebarPlaylists()`, and — if one of the affected playlists is open
+  on the result page — a delayed `location.reload()` so its tracklist (and any
+  later edit's working copy) isn't stale. No saved playlists → the popup says
+  so and Confirm stays disabled.
 
 ---
 

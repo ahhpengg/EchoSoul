@@ -23,7 +23,7 @@ import cv2
 import numpy as np
 
 from src.fer import image_pipeline, inference
-from src.music import playlists, recommender
+from src.music import playlists, recommender, search
 from src.spotify import account, auth
 
 logger = logging.getLogger(__name__)
@@ -340,3 +340,27 @@ class BridgeApi:
     def delete_playlist(self, playlist_id: int) -> bool:
         """Delete a saved playlist (songs cascade). True if it existed."""
         return playlists.delete_playlist(int(playlist_id))
+
+    # --- Header search (frontend/js/search.js) -------------------------------
+
+    def search_tracks(self, query: str, limit: int = 10) -> list[dict]:
+        """Catalogue search for the header bar: word-prefix match on title/artist.
+
+        Most popular first. A query shorter than 2 characters returns []; the
+        limit is validated by the search module (1..50).
+        """
+        return search.search_tracks(str(query), limit=int(limit))
+
+    def get_playlists_containing_track(self, track_id: str) -> list[int]:
+        """IDs of saved playlists already containing the track (popup lock state)."""
+        return playlists.playlists_containing_track(str(track_id))
+
+    def add_track_to_playlists(self, track_id: str, playlist_ids: list) -> dict:
+        """Append a song to the selected saved playlists.
+
+        Returns ``{"added": [ids], "skipped": [ids]}`` — skipped covers
+        playlists that already contain the song or were deleted meanwhile.
+        JS numbers arrive as floats; coerce to int like the other id params.
+        """
+        ids = [int(playlist_id) for playlist_id in playlist_ids]
+        return playlists.add_track_to_playlists(str(track_id), ids)

@@ -307,6 +307,48 @@ def test_playlist_crud_delegates_with_int_coercion(monkeypatch, api):
     assert all(isinstance(v, int) for v in (seen["load"], seen["rename"][0], seen["delete"]))
 
 
+# --- header search -----------------------------------------------------------
+
+
+def test_search_tracks_delegates_with_int_coercion(monkeypatch, api):
+    seen = {}
+
+    def _fake_search(query, limit):
+        seen["query"], seen["limit"] = query, limit
+        return [{"track_id": "t1", "track_name": "Song", "popularity": None}]
+
+    monkeypatch.setattr(bridge_module.search, "search_tracks", _fake_search)
+    result = api.search_tracks("love", 10.0)  # JS numbers arrive as float
+    assert result == [{"track_id": "t1", "track_name": "Song", "popularity": None}]
+    assert seen == {"query": "love", "limit": 10}
+    assert isinstance(seen["limit"], int)
+    json.dumps(result)
+
+
+def test_get_playlists_containing_track_delegates(monkeypatch, api):
+    monkeypatch.setattr(
+        bridge_module.playlists, "playlists_containing_track", lambda track_id: [3, 7]
+    )
+    result = api.get_playlists_containing_track("t1")
+    assert result == [3, 7]
+    json.dumps(result)
+
+
+def test_add_track_to_playlists_coerces_js_float_ids(monkeypatch, api):
+    seen = {}
+
+    def _fake_add(track_id, playlist_ids):
+        seen["track_id"], seen["playlist_ids"] = track_id, playlist_ids
+        return {"added": playlist_ids, "skipped": []}
+
+    monkeypatch.setattr(bridge_module.playlists, "add_track_to_playlists", _fake_add)
+    result = api.add_track_to_playlists("t1", [3.0, 7.0])
+    assert result == {"added": [3, 7], "skipped": []}
+    assert seen == {"track_id": "t1", "playlist_ids": [3, 7]}
+    assert all(isinstance(pid, int) for pid in seen["playlist_ids"])
+    json.dumps(result)
+
+
 # --- window controls ---------------------------------------------------------
 
 

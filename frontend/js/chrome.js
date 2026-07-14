@@ -15,12 +15,14 @@
  *   - <  lg: sidebar becomes an off-canvas drawer toggled by the header's
  *     hamburger, dimmed by a backdrop; content goes full width.
  *
- * PLACEHOLDER DATA: the search box (and the player's queue button) are still
- * static until they get a backend. The sidebar playlist list is LIVE: this
- * script renders the empty #sidebar-playlists container and js/sidebar.js (a
- * module loaded after this script) fills it from the Python bridge
- * (list_user_playlists). The bottom player is rendered idle here and driven
- * live by js/playback.js (Spotify Web Playback SDK). See docs/FRONTEND.md.
+ * PLACEHOLDER DATA: only the player's queue button is still static. The
+ * sidebar playlist list is LIVE: this script renders the empty
+ * #sidebar-playlists container and js/sidebar.js (a module loaded after this
+ * script) fills it from the Python bridge (list_user_playlists). The header
+ * search box is LIVE too: this script renders the input + empty dropdown and
+ * js/search.js drives them (catalogue search, play, add-to-playlists). The
+ * bottom player is rendered idle here and driven live by js/playback.js
+ * (Spotify Web Playback SDK). See docs/FRONTEND.md.
  */
 (function () {
   "use strict";
@@ -108,9 +110,10 @@
       </div>
       <div class="flex items-center gap-3 md:gap-4 flex-grow justify-end">
         <button data-nav="home" aria-label="Home" class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center text-white hover:bg-surface-container-highest transition-colors shrink-0"><span class="material-symbols-outlined filled">home</span></button>
-        <div class="relative w-full max-w-md hidden md:block">
-          <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
-          <input data-placeholder class="w-full bg-surface-container-high border-none rounded-full py-2.5 pl-12 pr-6 text-on-surface placeholder:text-on-surface-variant focus:ring-1 focus:ring-primary transition-all font-body-md" placeholder="What do you want to play?" type="text">
+        <div id="header-search-wrap" class="relative w-full max-w-md hidden md:block">
+          <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">search</span>
+          <input id="header-search" autocomplete="off" spellcheck="false" class="w-full bg-surface-container-high border-none rounded-full py-2.5 pl-12 pr-6 text-on-surface placeholder:text-on-surface-variant focus:ring-1 focus:ring-primary transition-all font-body-md" placeholder="What do you want to play?" type="text">
+          <div id="search-dropdown" class="hidden absolute left-0 right-0 top-[52px] rounded-2xl bg-surface-container-high border border-white/10 shadow-2xl py-2 z-50 max-h-[min(28rem,60vh)] overflow-y-auto"></div>
         </div>
         <div class="flex items-center gap-2 md:gap-4 md:ml-2 shrink-0">
           <div class="relative shrink-0">

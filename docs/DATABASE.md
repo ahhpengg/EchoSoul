@@ -159,6 +159,59 @@ applied by index-condition pushdown, keeping table lookups to the ~1000 rows kep
 The recommender pins this index with `FORCE INDEX` because the optimizer otherwise
 misreads the wide `sample_key >= s` range as a full scan.
 
+### Track search (migrations 0006 + 0007)
+
+The header search bar (`src/music/search.py`, `frontend/js/search.js`) does
+word-prefix matching on title + artists, most popular first. Two migrations
+back it:
+
+```sql
+-- 0006: FULLTEXT over the full catalogue (tier-2 fallback)
+ALTER TABLE music ADD FULLTEXT INDEX ft_music_search (track_name, artists);
+
+-- 0007: the "hot tier" — a denormalised copy of the ~116k rows (of 1.31M)
+-- that carry a popularity value, with its own FULLTEXT index
+CREATE TABLE music_search_hot (
+    track_id      VARCHAR(22)      NOT NULL,
+    track_name    VARCHAR(500)     NOT NULL,
+    artists       VARCHAR(500)     NOT NULL,
+    album_name    VARCHAR(500)     DEFAULT NULL,
+    duration_ms   INT UNSIGNED     DEFAULT NULL,
+    popularity    TINYINT UNSIGNED NOT NULL,
+    PRIMARY KEY (track_id)
+) ...;  -- populated by INSERT..SELECT FROM music WHERE popularity IS NOT NULL
+```
+
+**Why a second table?** `ORDER BY popularity` over a FULLTEXT match forces
+MySQL to fetch **every** matching row to read `popularity` — 34k–97k random
+row fetches for a broad prefix like `love*` on a table far bigger than the
+default InnoDB buffer pool. Measured: 3–9 s per query; unusable for
+as-you-type search. Only rows with a non-NULL popularity can ever appear in
+popularity order (NULL sorts last), so the hot tier contains exactly that
+slice — small enough that the same query answers in tens of ms. When the hot
+tier can't fill the requested limit, `search_tracks` tops up from the `music`
+FULLTEXT index ordered **by relevance** (`ORDER BY MATCH(...) DESC LIMIT n`),
+which uses InnoDB's early-terminating rank-sort path and never materialises
+the match set. The tracks only reachable there have no popularity data, so
+best-text-match is the honest order for them.
+
+Query semantics (`_boolean_query`): user text becomes `+word1* +word2*` in
+BOOLEAN MODE — every word required, each matched as a word prefix. Boolean
+operators are stripped from input. Two caveats, both inherent to InnoDB FTS
+with the default parser:
+
+- **Words shorter than `innodb_ft_min_token_size` (default 3) are not
+  indexed.** Short *non-final* tokens are dropped from the query ("7 rings" →
+  `+rings*`) because a required unindexable word would veto everything; the
+  final token is kept at any length since it's a still-being-typed prefix
+  ("lo*" matches "love"). A title made *only* of short words ("22") is not
+  findable — accepted limitation, not worth a server-config change.
+- **CJK titles don't tokenise** with the default parser (would need an ngram
+  FULLTEXT index). The catalogue is overwhelmingly Latin-script; accepted.
+
+**Derived data:** `music_search_hot` is a copy, not a source. If the music
+catalogue is ever re-seeded, rebuild it (`TRUNCATE` + re-run the 0007 INSERT).
+
 ---
 
 ## Table: `emotion_music_mapping`
@@ -295,6 +348,8 @@ src/db/migrations/
 ├── 0003_indexes.sql
 ├── 0004_sample_key.sql
 ├── 0005_playlist_description.sql
+├── 0006_fulltext_search.sql
+├── 0007_search_hot_tier.sql
 └── …
 ```
 

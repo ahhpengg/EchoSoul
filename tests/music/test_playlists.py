@@ -144,6 +144,72 @@ def test_update_missing_returns_false():
     assert playlists.update_playlist(2_000_000_000, "Nope", []) is False
 
 
+@pytest.fixture(scope="module")
+def extra_track_id(track_ids) -> str:
+    """A catalogue track that is NOT in the base `track_ids` fixture."""
+    rows = connection.fetchall("SELECT track_id FROM music LIMIT 8")
+    remaining = [r["track_id"] for r in rows if r["track_id"] not in track_ids]
+    assert remaining, "catalogue must be seeded for playlist tests"
+    return remaining[0]
+
+
+def test_add_track_appends_at_end_of_each_playlist(track_ids, extra_track_id, cleanup):
+    id_a = playlists.save_playlist("Add A", track_ids, "happy")
+    id_b = playlists.save_playlist("Add B", track_ids[:2], "sad")
+    cleanup.extend([id_a, id_b])
+
+    result = playlists.add_track_to_playlists(extra_track_id, [id_a, id_b])
+    assert result == {"added": [id_a, id_b], "skipped": []}
+
+    loaded_a = playlists.load_playlist(id_a)
+    assert [t["track_id"] for t in loaded_a["tracks"]] == track_ids + [extra_track_id]
+    assert loaded_a["tracks"][-1]["position"] == len(track_ids)
+    loaded_b = playlists.load_playlist(id_b)
+    assert [t["track_id"] for t in loaded_b["tracks"]] == track_ids[:2] + [extra_track_id]
+
+
+def test_add_track_skips_playlist_already_containing_it(track_ids, cleanup):
+    playlist_id = playlists.save_playlist("Add Dup", track_ids)
+    cleanup.append(playlist_id)
+
+    result = playlists.add_track_to_playlists(track_ids[0], [playlist_id])
+    assert result == {"added": [], "skipped": [playlist_id]}
+    assert len(playlists.load_playlist(playlist_id)["tracks"]) == len(track_ids)
+
+
+def test_add_track_skips_missing_playlist(track_ids, extra_track_id, cleanup):
+    playlist_id = playlists.save_playlist("Add Partial", track_ids)
+    cleanup.append(playlist_id)
+
+    result = playlists.add_track_to_playlists(extra_track_id, [2_000_000_000, playlist_id])
+    assert result == {"added": [playlist_id], "skipped": [2_000_000_000]}
+
+
+def test_add_track_bumps_updated_at(track_ids, extra_track_id, cleanup):
+    playlist_id = playlists.save_playlist("Add Bump", track_ids)
+    cleanup.append(playlist_id)
+    # Push updated_at into the past so the CURRENT_TIMESTAMP bump is visible
+    # regardless of how fast the test runs (the column has 1 s resolution).
+    connection.execute(
+        "UPDATE playlist SET updated_at = '2020-01-01 00:00:00' WHERE playlist_id = %s",
+        (playlist_id,),
+    )
+
+    playlists.add_track_to_playlists(extra_track_id, [playlist_id])
+    assert playlists.load_playlist(playlist_id)["updated_at"] > "2020-01-02"
+
+
+def test_playlists_containing_track(track_ids, extra_track_id, cleanup):
+    id_a = playlists.save_playlist("Contains A", track_ids)
+    id_b = playlists.save_playlist("Contains B", track_ids[:1])
+    cleanup.extend([id_a, id_b])
+
+    containing = playlists.playlists_containing_track(track_ids[0])
+    assert id_a in containing
+    assert id_b in containing
+    assert id_a not in playlists.playlists_containing_track(extra_track_id)
+
+
 def test_rename_changes_name(track_ids, cleanup):
     playlist_id = playlists.save_playlist("Old Name", track_ids)
     cleanup.append(playlist_id)

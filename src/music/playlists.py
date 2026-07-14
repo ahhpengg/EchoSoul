@@ -1,4 +1,4 @@
-"""Playlist persistence: save, load, list, update, rename, delete.
+"""Playlist persistence: save, load, list, update, rename, delete, add songs.
 
 CRUD over the ``playlist`` and ``playlist_song`` tables (docs/DATABASE.md).
 Playlists are both system-generated (from an emotion detection) and
@@ -143,6 +143,62 @@ def list_playlists(limit: int = 50) -> list[dict]:
         row["created_at"] = _iso(row["created_at"])
         row["updated_at"] = _iso(row["updated_at"])
     return rows
+
+
+def playlists_containing_track(track_id: str) -> list[int]:
+    """IDs of every playlist that already contains the given track.
+
+    Feeds the header search's add-to-playlists popup, which shows those
+    playlists as already-added (checked and locked).
+    """
+    rows = connection.fetchall(
+        "SELECT playlist_id FROM playlist_song WHERE track_id = %s",
+        (track_id,),
+    )
+    return [row["playlist_id"] for row in rows]
+
+
+def add_track_to_playlists(track_id: str, playlist_ids: list[int]) -> dict:
+    """Append one song to several playlists in a single transaction.
+
+    The song lands at the end of each playlist (max position + 1), and each
+    playlist that gains it has ``updated_at`` bumped so it floats to the top
+    of the sidebar. Playlists that already contain the track, or that no
+    longer exist (deleted while the popup was open), are skipped rather than
+    failing the whole batch.
+
+    Returns ``{"added": [ids], "skipped": [ids]}`` in the order submitted. A
+    track absent from the catalogue violates the FK and aborts the batch
+    (fail loud — search results can only carry real catalogue tracks).
+    """
+    added: list[int] = []
+    skipped: list[int] = []
+    with connection.get_cursor(commit=True) as cur:
+        for playlist_id in playlist_ids:
+            cur.execute("SELECT 1 FROM playlist WHERE playlist_id = %s", (playlist_id,))
+            if cur.fetchone() is None:
+                skipped.append(playlist_id)
+                continue
+            cur.execute(
+                "SELECT 1 FROM playlist_song WHERE playlist_id = %s AND track_id = %s",
+                (playlist_id, track_id),
+            )
+            if cur.fetchone() is not None:
+                skipped.append(playlist_id)
+                continue
+            cur.execute(
+                "SELECT COALESCE(MAX(position) + 1, 0) AS next_position"
+                " FROM playlist_song WHERE playlist_id = %s",
+                (playlist_id,),
+            )
+            next_position = cur.fetchone()["next_position"]
+            cur.execute(_INSERT_SONG_SQL, (playlist_id, track_id, next_position))
+            cur.execute(
+                "UPDATE playlist SET updated_at = CURRENT_TIMESTAMP WHERE playlist_id = %s",
+                (playlist_id,),
+            )
+            added.append(playlist_id)
+    return {"added": added, "skipped": skipped}
 
 
 def rename_playlist(playlist_id: int, name: str) -> bool:
