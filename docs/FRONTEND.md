@@ -333,8 +333,12 @@ As-built addition: below the scanner hero and the mood chips, `home.js` renders
 a **"Your latest playlist"** showcase — the newest saved playlist
 (`list_user_playlists[0]` → `load_playlist`) with cover, meta line and the
 first 5 tracks (plus a "View all N songs" row). The section stays hidden while
-nothing has been saved yet. Cover, title and the "Open playlist" button all
-open `result.html#playlist=<id>`.
+nothing has been saved yet. Title and the "Open playlist" button open
+`result.html#playlist=<id>`; the **cover's hover button** is themed to the
+emotion accent (yellow neutral, blue sad, red angry, … — dark-navy glyph;
+same treatment as the result page's cover overlay) and, for Premium, plays
+the whole playlist in-app via `playTracks` (filled play glyph). Free accounts
+keep the arrow glyph and the cover opens the playlist view instead.
 
 ### `photo.html`
 
@@ -489,8 +493,9 @@ Buttons under the title:
   kept so later edits on the same page update the saved copy. On failure the
   button re-enables with an error toast. The saved view (`#playlist=<id>`)
   removes this button — it's already saved.
-- **Play-all** (`#playlist-play-btn`, and the cover's hover overlay): starts
-  the whole list on the in-app SDK device via `playTracks(trackIds, 0)`
+- **Play-all** (`#playlist-play-btn`, and the cover's hover overlay — the
+  overlay button is tinted to the emotion accent with a dark-navy glyph):
+  starts the whole list on the in-app SDK device via `playTracks(trackIds, 0)`
   (imported from `playback.js`). Clicking a **track row** starts the list *at
   that track*, so prev/next on the bottom player walk the playlist. Failures
   surface as a toast. All of it removed in Free mode.

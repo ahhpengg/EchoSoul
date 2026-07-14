@@ -113,6 +113,14 @@ function applyFreeMode() {
 function renderCover(accent, theme) {
   document.getElementById("playlist-cover").style.backgroundImage =
     `linear-gradient(135deg, ${accent}, #222a3d)`;
+  // The hover play button follows the emotion accent (yellow neutral, blue
+  // sad, red angry, …; theme primary for user-created playlists) instead of
+  // the static green bg-secondary. Dark-navy glyph reads on every accent.
+  const overlayBtn = document.querySelector("#cover-play-overlay button");
+  if (overlayBtn) {
+    overlayBtn.style.backgroundColor = accent;
+    overlayBtn.style.color = "#0b1326";
+  }
   const coverIcon = document.getElementById("cover-icon");
   if (theme) {
     coverIcon.className = "w-full h-full object-cover";

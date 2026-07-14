@@ -8,12 +8,14 @@
  * stays hidden while nothing has been saved yet.
  */
 import { callPy } from "./bridge.js";
+import { playTracks } from "./playback.js";
 import {
   DEFAULT_ACCENT,
   EMOTION_THEMES,
   dbTrack,
   formatPlaylistMeta,
   isFreeUser,
+  showToast,
   trackRow,
 } from "./playlists_ui.js";
 
@@ -90,6 +92,30 @@ function renderShowcase(section, playlist) {
   function openPlaylist() {
     window.location.assign(`result.html#playlist=${playlist.playlist_id}`);
   }
+
+  // Cover hover button: themed to the emotion accent (dark-navy glyph reads
+  // on every accent). Premium: clicking the cover plays the whole playlist
+  // in-app. Free: no in-app playback, so it opens the full playlist view.
+  const coverTile = document.getElementById("recent-cover-tile");
+  const coverBtn = document.getElementById("recent-cover-btn");
+  coverBtn.style.backgroundColor = accent;
+  coverBtn.style.color = "#0b1326";
+  if (free) {
+    coverTile.title = "Open playlist";
+    coverTile.addEventListener("click", openPlaylist);
+  } else {
+    const glyph = coverBtn.querySelector(".material-symbols-outlined");
+    glyph.textContent = "play_arrow";
+    glyph.classList.add("filled", "ml-1");
+    coverTile.title = "Play";
+    coverTile.addEventListener("click", () => {
+      playTracks(playlist.tracks.map((t) => t.track_id), 0).catch((err) => {
+        console.error("playTracks failed:", err);
+        showToast(err.message || "Spotify couldn't start playback.");
+      });
+    });
+  }
+
   if (playlist.tracks.length > SHOWCASE_TRACK_LIMIT) {
     const more = document.createElement("button");
     more.className =
