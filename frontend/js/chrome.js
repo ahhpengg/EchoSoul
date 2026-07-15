@@ -62,9 +62,9 @@
   function sidebarHTML() {
     const scanBlock = cfg.scan
       ? `<div class="mt-auto pt-6 pb-28">
-           <button data-nav="scan" class="w-full flex items-center justify-center gap-3 px-6 py-3 rounded-full bg-primary text-white font-bold shadow-lg hover:scale-105 hover:brightness-110 transition-all group">
-             <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1,'wght' 700;color:rgb(168,85,247);">photo_camera</span>
-             <span class="text-label-md font-bold" style="color:rgb(168,85,247);">Scan Emotion</span>
+           <button data-nav="scan" class="w-full flex items-center justify-center gap-3 px-6 py-3 rounded-full bg-primary text-on-primary font-bold shadow-lg hover:scale-105 hover:brightness-110 transition-all group">
+             <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1,'wght' 700;">photo_camera</span>
+             <span class="text-label-md font-bold">Scan Emotion</span>
            </button>
          </div>`
       : `<div class="mt-auto pt-6 pb-28"></div>`;
