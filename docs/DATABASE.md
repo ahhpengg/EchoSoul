@@ -73,6 +73,7 @@ CREATE TABLE music (
     album_name    VARCHAR(500) DEFAULT NULL,
     genre         VARCHAR(100) DEFAULT NULL,
     genre_source  ENUM('mh','jbc_sub','jbc','artist') DEFAULT NULL,
+    canonical_genre VARCHAR(50) DEFAULT NULL,   -- normalised genre bucket (migration 0009)
     valence       FLOAT        DEFAULT NULL,   -- NULL = external track (migration 0008)
     energy        FLOAT        DEFAULT NULL,
     tempo         FLOAT        DEFAULT NULL,
@@ -142,6 +143,41 @@ Consequences, all deliberate:
 - **Findable in the header search** — the `music` FULLTEXT index picks the row
   up automatically (tier-2 relevance order; the popularity hot tier is
   untouched). If it can live in your playlists, search should find it.
+
+### Canonical genre (migration 0009)
+
+`genre` is a raw Last.fm/dataset tag — a folksonomy with **3,994 distinct
+values** full of synonyms (`c-pop` / `mandopop` / `chinese`), spelling variants
+(`hip-hop` / `hip hop` / `hiphop`), nationality and instrument tags, and junk
+(`all`, `canadian`, artist names). Unusable directly for a user-facing genre
+filter. `canonical_genre` normalises it into a **23-bucket vocabulary**
+(Pop, Rock, Indie / Alternative, Metal, Punk / Hardcore, Hip-Hop / Rap,
+R&B / Soul, Electronic / Dance, Jazz, Blues, Classical, Country,
+Folk / Acoustic, Latin, Reggae, World, K-Pop, J-Pop / Anime, C-Pop / Mandopop,
+SEA Pop, Soundtrack / Musical, Ambient / Instrumental, Christian / Gospel).
+
+- **Source of truth:** `data/seed/genre_canonical_map.csv` — one row per raw
+  tag observed in the catalogue: `raw_genre, canonical_genre, layer, note`.
+  `layer` records how the decision was made: `exact` (hand decision), `rule`
+  (keyword match), `junk` (deliberately excluded — mood/meta/nationality tags
+  with no genre signal), `unmapped` (no decision; tail noise). Junk and
+  unmapped rows have an empty `canonical_genre` and stay NULL. The mapping was
+  drafted mechanically, then owner-reviewed 2026-07-18 (the flagged judgment
+  calls are recorded in the `note` column) — cite it in the report as
+  rule-based, owner-curated normalisation.
+- **Backfill:** `scripts/apply_genre_mapping.py` (idempotent: resets the
+  column, then applies the CSV per raw tag via `idx_music_genre`).
+- **Coverage** (at mapping time): 88.1% of genre-labelled rows mapped to a
+  bucket, 7.5% junk, 4.4% unmapped; plus the 10.9% of the catalogue with
+  `genre IS NULL`, which stays NULL here too (external tracks included).
+- **Semantics:** a genre-filtered recommendation query adds
+  `AND canonical_genre IN (...)`, so NULL rows simply never match a filter —
+  they remain reachable when no filter is active. Backed by
+  `idx_music_canonical_genre` (single column; the genre-filtered hot-path
+  index shape is decided with the recommender change, not here).
+- **Derived data:** like `music_search_hot`, the column is a projection of
+  committed inputs. If the catalogue is re-seeded or the mapping CSV is
+  edited, re-run the backfill script.
 
 ### Size estimate
 
@@ -348,8 +384,8 @@ A convenience view filtering the catalogue to tracks that have all the data need
 
 ```sql
 CREATE OR REPLACE VIEW v_in_scope_music AS
-SELECT track_id, track_name, artists, album_name, genre,
-       valence, energy, tempo, popularity, duration_ms
+SELECT track_id, track_name, artists, album_name, genre, canonical_genre,
+       valence, energy, tempo, popularity, duration_ms, sample_key
 FROM music
 WHERE valence IS NOT NULL
   AND energy  IS NOT NULL
@@ -375,6 +411,7 @@ src/db/migrations/
 ├── 0006_fulltext_search.sql
 ├── 0007_search_hot_tier.sql
 ├── 0008_nullable_audio_features.sql
+├── 0009_canonical_genre.sql
 └── …
 ```
 

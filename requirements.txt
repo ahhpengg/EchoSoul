@@ -26,8 +26,6 @@ iniconfig==2.3.0
 jaraco.classes==3.4.0
 jaraco.context==6.1.2
 jaraco.functools==4.5.0
-jax==0.10.1
-jaxlib==0.10.1
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 keras==3.15.0
