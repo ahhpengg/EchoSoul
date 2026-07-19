@@ -15,6 +15,7 @@ def generate_playlist(
     emotion: str,
     size: int = 25,
     seed: int | None = None,
+    genres: list[str] | None = None,
 ) -> list[dict]:
     """
     Generate a playlist of N tracks matching the given emotion.
@@ -26,6 +27,10 @@ def generate_playlist(
                   if there are fewer matching tracks.
         seed:     Optional random seed for deterministic tests.
                   None in production for varied recommendations.
+        genres:   Optional list of canonical genre buckets (docs/DATABASE.md
+                  "Canonical genre") to restrict the pool to. None/empty = all
+                  genres — the default flow, and what the UI sends while every
+                  bucket is still checked. Unknown buckets simply match nothing.
 
     Returns:
         List of dicts, each with keys:
@@ -129,7 +134,7 @@ Two stages of randomness, both driven by the same seeded `rng`:
 Stage 2 is not redundant: it's what protects against two calls landing on nearby
 `start` values. Even if their 1000-track windows were *identical*, two independent
 `size`-track draws overlap by only `size² / 1000` tracks on average (< 1 track at
-the default size of 25). So heavy window overlap still yields different playlists.
+the default size of 20). So heavy window overlap still yields different playlists.
 
 `random.Random()` instances are independent of the global random state. This is important: tests can pass `seed=42` for deterministic output without affecting any other random-using code in the system.
 
@@ -163,27 +168,69 @@ Add a hidden debug page that displays the candidate count per emotion. Helpful d
 
 ---
 
-## The 25-track default
+## The 20-track default
 
-The CP1 user survey (§3.2) asked about preferred playlist length; 21–30 was the most common response. Default of 25 sits in the middle.
+The CP1 user survey (§3.2) asked about preferred playlist length; 21–30 was the most common response. The owner set the default to 20, just under that band.
 
 Configurable via the `size` argument so the UI can offer it as a preference later.
 
 ---
 
-## Why not include genre in the filter?
+## Genre filtering (owner-requested, 2026-07-18)
 
-A reasonable instinct is to filter by genre too — "happy + pop" or "sad + ballad". We deliberately don't, for three reasons:
+The CP1 plan deliberately excluded genre filtering — the raw `genre` column was a
+3,994-value folksonomy (empty-combo risk, redundant with the mood signature).
+That decision was **reversed by the owner in CP2** once the blockers were
+actually measured and solved:
 
-1. **Genre and emotion are partially redundant.** The valence/energy/tempo signature already captures the "feel" of the music. Adding a genre filter narrows the pool to little benefit and can produce empty results for niche emotion+genre combinations.
-2. **Surprise / variety is desirable.** A user feeling happy might enjoy *both* an upbeat pop track and an upbeat indie folk track. Restricting genre would hide this.
-3. **The capstone plan does not specify genre filtering** in §3.10. Adding it would extend scope.
+1. **The noise problem is solved** by the canonical mapping — 23 owner-reviewed
+   buckets in `music.canonical_genre` (docs/DATABASE.md "Canonical genre").
+2. **The empty-combo risk was measured, not assumed:** an emotion×bucket matrix
+   against the rule windows showed exactly one combo under the default playlist
+   size (K-Pop × sad = 18 at mapping time). Policy: **thin picks are allowed** —
+   the playlist just comes out shorter and the UI says so.
+3. **Filtering is opt-in.** `genres=None` (the default) is the CP1 behaviour,
+   bit-for-bit. Variety across genres remains the default experience.
 
-Genre is **displayed** in the result (so the user knows what they're getting) but not **filtered on**.
+### Filtered candidate pool (Step 3, genre variant)
 
-### Future extension (not for CP1/CP2)
+The unfiltered index cannot serve a genre filter well: `canonical_genre` isn't
+in `idx_music_sample_vet`, so MySQL would fetch table rows across the *whole*
+emotion range hunting for matches — for a thin pick that's a 100k-row-fetch
+scan (the same failure mode the header search hit, docs/DATABASE.md
+"Track search"). Migration **0010** adds the genre-first equivalent:
 
-A future version could expose an optional genre filter or a "more like this" mode that adds the seed track's genre as a soft preference (e.g. weighted sampling, not hard filter). Out of scope for the capstone.
+```sql
+CREATE INDEX idx_music_genre_sample_vet
+    ON music (canonical_genre, sample_key, valence, energy, tempo);
+```
+
+The filtered pool is built with **one windowed query per selected bucket** —
+an equality prefix on `canonical_genre` turns each query into the same native
+`sample_key`-ordered range scan as the unfiltered path (no filesort), with the
+same wrap-around top-up. Windows are concatenated in Python and Stage 2 samples
+from the union. Per-genre window: `max(50, 1000 // len(genres))` rows, so the
+merged pool stays ~`CANDIDATE_POOL_LIMIT` regardless of how many buckets are
+picked. Genre lists are deduplicated and sorted before querying so a fixed seed
+stays deterministic regardless of picker order.
+
+**Mix behaviour (deliberate):** sampling uniformly over the union of same-sized
+windows weights the picked genres roughly equally rather than by catalogue
+share — a user who picks Pop + K-Pop wants a blend, not 95% Pop. A small bucket
+contributes everything it has.
+
+### Picker semantics (owner-specified)
+
+The UI is a multiple-choice picker over the 23 buckets with **all buckets
+checked by default** and a floor of **at least one checked** (UI-enforced —
+unchecking the last one is blocked). All-checked is identical to "no filter":
+the frontend sends `genres=None` in that state, so the default flow takes the
+unfiltered CP1 code path bit-for-bit. There are **no per-bucket counts** in the
+picker (owner decision — the goal is relatability, not pool statistics); a thin
+pick simply yields a shorter playlist with an explanatory note. The bucket
+list itself comes from a small bridge lookup (`DISTINCT canonical_genre`,
+cached for the session) so the vocabulary stays single-sourced from the seed
+CSV via the database.
 
 ---
 
@@ -224,6 +271,8 @@ See `docs/TESTING.md`.
 |---|---|
 | Candidate pool has < `size` matches | Return all matches (smaller-than-requested playlist) |
 | Candidate pool is empty | Return `[]`; caller can show "no matches" message |
+| `genres` names an unknown bucket | Matches nothing (contributes 0 rows); no error — the picker only offers real buckets, so this only happens to stale/hand-edited state |
+| `genres` given but every bucket is thin | Shorter playlist; the UI shows "only N songs match" per the thin-combo policy |
 | Same emotion called twice in quick succession | Different output each time (no seed), thanks to fresh `random.Random()` instance per call |
 | Rule table doesn't have the emotion | Caught at Step 1 — but if somehow seeded incorrectly, Step 2 raises `TypeError` on missing row. Fail loud. |
 | Catalogue contains NULL valence/energy/tempo | Excluded by `v_in_scope_music` view |

@@ -100,6 +100,8 @@ class BridgeApi:
         # Anchor rectangle of the in-progress edge-resize drag (see
         # window_begin_resize); None outside a drag.
         self._resize_drag = None
+        # Lazy cache for the canonical genre vocabulary (get_genre_buckets).
+        self._genre_buckets: list[str] | None = None
 
     def _bind_window(self, window) -> None:
         self._window = window
@@ -268,17 +270,39 @@ class BridgeApi:
     # --- Recommendation & playlists (docs/RECOMMENDATION.md) -----------------
 
     def generate_playlist(
-        self, emotion: str, size: int = recommender.DEFAULT_PLAYLIST_SIZE
+        self,
+        emotion: str,
+        size: int = recommender.DEFAULT_PLAYLIST_SIZE,
+        genres: list[str] | None = None,
     ) -> list[dict]:
         """Build a playlist of ``size`` tracks for a supported emotion.
 
         Unseeded on purpose: repeat requests for the same emotion vary. Raises
         ValueError for unsupported emotions or a non-positive size.
+
+        ``genres`` optionally restricts the pool to canonical genre buckets
+        (docs/RECOMMENDATION.md "Genre filtering"). The UI sends None while
+        every bucket is checked (the default), so the unfiltered path stays
+        untouched. Non-string/blank entries from the JS side are dropped; an
+        empty result means no filter.
         """
         size = int(size)
         if size < 1:
             raise ValueError(f"Playlist size must be >= 1, got {size}")
-        return recommender.generate_playlist(emotion, size=size)
+        cleaned = None
+        if genres:
+            cleaned = [g.strip() for g in genres if isinstance(g, str) and g.strip()] or None
+        return recommender.generate_playlist(emotion, size=size, genres=cleaned)
+
+    def get_genre_buckets(self) -> list[str]:
+        """Return the canonical genre vocabulary for the picker, sorted.
+
+        Cached for the process lifetime — the catalogue (and therefore the
+        vocabulary) is static while the app runs.
+        """
+        if self._genre_buckets is None:
+            self._genre_buckets = recommender.list_genre_buckets()
+        return self._genre_buckets
 
     def save_playlist(
         self,

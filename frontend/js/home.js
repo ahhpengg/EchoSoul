@@ -8,6 +8,7 @@
  * stays hidden while nothing has been saved yet.
  */
 import { callPy } from "./bridge.js";
+import { describeGenreFilter, getGenreFilter, openGenrePicker } from "./genre_filter.js";
 import { playTracks } from "./playback.js";
 import {
   DEFAULT_ACCENT,
@@ -55,6 +56,25 @@ document.querySelectorAll(".mood-chip").forEach((chip) => {
     window.location.assign("loading.html");
   });
 });
+
+// ---- Genre preference chip --------------------------------------------------
+
+// The chip both opens the picker and displays the active selection, so a
+// filter set earlier in the session is always visible before the next scan.
+const genreChip = document.getElementById("genre-filter-chip");
+const genreChipLabel = document.getElementById("genre-filter-chip-label");
+
+function refreshGenreChip() {
+  if (!genreChip) return;
+  const filter = getGenreFilter();
+  genreChipLabel.textContent = `Playlist genres: ${describeGenreFilter(filter)}`;
+  // A live filter tints the chip so the non-default state can't be missed.
+  genreChip.classList.toggle("border-primary", Boolean(filter));
+  genreChip.classList.toggle("text-on-surface", Boolean(filter));
+}
+
+genreChip?.addEventListener("click", () => openGenrePicker(refreshGenreChip));
+refreshGenreChip();
 
 // ---- "Your latest playlist" showcase ---------------------------------------
 

@@ -26,12 +26,19 @@ SUPPORTED_EMOTIONS = frozenset({"happy", "surprised", "sad", "angry", "neutral"}
 # Size of the random candidate window pulled before the Stage-2 draw. Kept far
 # larger than a playlist so two nearby random start points (whose windows overlap
 # heavily) still yield near-disjoint playlists — expected overlap of two draws is
-# size^2 / CANDIDATE_POOL_LIMIT, i.e. < 1 track at the default size of 25. Small
+# size^2 / CANDIDATE_POOL_LIMIT, i.e. < 1 track at the default size of 20. Small
 # enough to fit in memory and to avoid a server-side ORDER BY RAND().
 CANDIDATE_POOL_LIMIT = 1000
 
-# Default playlist length. CP1 survey §3.2 favoured 21-30 tracks; 25 is the mid.
-DEFAULT_PLAYLIST_SIZE = 25
+# Default playlist length. CP1 survey §3.2 favoured 21-30 tracks; owner set 20.
+DEFAULT_PLAYLIST_SIZE = 20
+
+# Floor for the per-genre candidate window when a genre filter is active. With
+# many buckets picked, CANDIDATE_POOL_LIMIT split evenly would drop below the
+# playlist size (1000 // 23 = 43); the floor keeps every bucket's window at
+# least twice the default playlist, so a pick whose other buckets turn out
+# empty can still fill a playlist on its own.
+MIN_GENRE_WINDOW = 50
 
 _RULE_SQL = """
     SELECT valence_min, valence_max, energy_min, energy_max, tempo_min, tempo_max
@@ -83,6 +90,44 @@ _COUNT_SQL = """
       AND tempo   BETWEEN %s AND %s
 """
 
+# Genre-filtered variants of the candidate pair. The equality prefix on
+# canonical_genre turns each selected bucket into its own native
+# sample_key-ordered range scan on idx_music_genre_sample_vet (0010) — same
+# shape, same no-filesort guarantee, and same FORCE INDEX rationale as the
+# unfiltered pair above. One query per bucket; windows merged in Python.
+_GENRE_CANDIDATE_SQL = """
+    SELECT track_id, track_name, artists, album_name, genre,
+           valence, energy, tempo, duration_ms
+    FROM music FORCE INDEX (idx_music_genre_sample_vet)
+    WHERE canonical_genre = %s
+      AND valence BETWEEN %s AND %s
+      AND energy  BETWEEN %s AND %s
+      AND tempo   BETWEEN %s AND %s
+      AND sample_key >= %s
+    ORDER BY sample_key
+    LIMIT %s
+"""
+
+_GENRE_WRAP_SQL = """
+    SELECT track_id, track_name, artists, album_name, genre,
+           valence, energy, tempo, duration_ms
+    FROM music FORCE INDEX (idx_music_genre_sample_vet)
+    WHERE canonical_genre = %s
+      AND valence BETWEEN %s AND %s
+      AND energy  BETWEEN %s AND %s
+      AND tempo   BETWEEN %s AND %s
+      AND sample_key < %s
+    ORDER BY sample_key
+    LIMIT %s
+"""
+
+_BUCKETS_SQL = """
+    SELECT DISTINCT canonical_genre
+    FROM music
+    WHERE canonical_genre IS NOT NULL
+    ORDER BY canonical_genre
+"""
+
 
 def _lookup_rule(emotion: str) -> dict:
     """Return the valence/energy/tempo rule row for a supported emotion.
@@ -117,6 +162,7 @@ def generate_playlist(
     emotion: str,
     size: int = DEFAULT_PLAYLIST_SIZE,
     seed: int | None = None,
+    genres: list[str] | None = None,
 ) -> list[dict]:
     """Build a playlist of `size` tracks matching the given emotion.
 
@@ -125,6 +171,10 @@ def generate_playlist(
         size:    Desired track count; capped at the candidate pool size.
         seed:    Optional seed for deterministic sampling in tests. None in
                  production for varied recommendations.
+        genres:  Optional canonical genre buckets (docs/DATABASE.md "Canonical
+                 genre") restricting the pool. None/empty = all genres — the
+                 default flow, and what the UI sends while every bucket is
+                 checked. Unknown buckets simply contribute no rows.
 
     Returns a list of track dicts (keys: track_id, track_name, artists,
     album_name, genre, valence, energy, tempo, duration_ms). The list may be
@@ -139,12 +189,47 @@ def generate_playlist(
     rng = random.Random(seed)
     start = rng.random()
 
-    candidates = connection.fetchall(_CANDIDATE_SQL, (*params, start, CANDIDATE_POOL_LIMIT))
-    if len(candidates) < CANDIDATE_POOL_LIMIT:
-        deficit = CANDIDATE_POOL_LIMIT - len(candidates)
-        candidates += connection.fetchall(_CANDIDATE_WRAP_SQL, (*params, start, deficit))
+    if genres:
+        candidates = _genre_filtered_candidates(genres, params, start)
+    else:
+        candidates = connection.fetchall(_CANDIDATE_SQL, (*params, start, CANDIDATE_POOL_LIMIT))
+        if len(candidates) < CANDIDATE_POOL_LIMIT:
+            deficit = CANDIDATE_POOL_LIMIT - len(candidates)
+            candidates += connection.fetchall(_CANDIDATE_WRAP_SQL, (*params, start, deficit))
 
     return rng.sample(candidates, min(size, len(candidates)))
+
+
+def _genre_filtered_candidates(genres: list[str], params: tuple, start: float) -> list[dict]:
+    """Merged per-bucket candidate windows for a genre-filtered generation.
+
+    One windowed query per bucket, each in native sample_key order with its own
+    wrap-around top-up. Buckets are deduplicated and sorted so a fixed seed is
+    deterministic regardless of the order the user ticked them in. Sampling
+    uniformly over the merged windows weights picked genres roughly equally
+    rather than by catalogue share — deliberate: a user who picks two genres
+    wants a blend, not 95% of whichever is bigger (docs/RECOMMENDATION.md).
+    """
+    wanted = sorted(set(genres))
+    per_genre = max(MIN_GENRE_WINDOW, CANDIDATE_POOL_LIMIT // len(wanted))
+    candidates: list[dict] = []
+    for bucket in wanted:
+        rows = connection.fetchall(_GENRE_CANDIDATE_SQL, (bucket, *params, start, per_genre))
+        if len(rows) < per_genre:
+            deficit = per_genre - len(rows)
+            rows += connection.fetchall(_GENRE_WRAP_SQL, (bucket, *params, start, deficit))
+        candidates += rows
+    return candidates
+
+
+def list_genre_buckets() -> list[str]:
+    """Return the canonical genre vocabulary present in the catalogue, sorted.
+
+    Feeds the frontend genre picker, keeping the bucket list single-sourced
+    from the seed CSV via the database (a loose index scan on
+    idx_music_canonical_genre — milliseconds).
+    """
+    return [row["canonical_genre"] for row in connection.fetchall(_BUCKETS_SQL)]
 
 
 def count_candidates(emotion: str) -> int:

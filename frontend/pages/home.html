@@ -27,6 +27,20 @@
       </div>
     </section>
 
+    <!-- Genre preference for generated playlists (genre_filter.js via home.js).
+         Sits between the scanner and the manual mood picker because it applies
+         to both paths; the label mirrors the active selection so the state is
+         never invisible. The negative margins pull it to a stack-md (24px)
+         distance from both neighbours — half the main column's stack-lg gap —
+         so it reads as part of the scan/mood cluster, not a stray section. -->
+    <section class="animate-fade-in-up delay-100 flex justify-center -my-6">
+      <button id="genre-filter-chip" title="Choose which genres your generated playlists will include"
+              class="px-4 py-2 rounded-full bg-surface-container border border-outline-variant hover:border-primary hover:bg-primary/10 transition-all text-label-md font-label-md text-on-surface-variant flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]">tune</span>
+        <span id="genre-filter-chip-label">Playlist genres: All</span>
+      </button>
+    </section>
+
     <!-- Manual Mood Selection -->
     <section class="animate-fade-in-up delay-100 flex flex-col items-center gap-stack-sm text-center">
       <h3 class="text-headline-md font-headline-md text-on-surface">Prefer not to show your face?</h3>

@@ -157,7 +157,7 @@ User clicks "Take Photo"
   → music.recommender.generate_playlist(emotion_label)
     1. Look up emotion_music_mapping row
     2. SELECT * FROM music WHERE valence BETWEEN ? AND ? AND energy BETWEEN ? AND ? AND tempo BETWEEN ? AND ? LIMIT 1000
-    3. Random sample N tracks (default N=25)
+    3. Random sample N tracks (default N=20)
     4. Return list of {track_id, track_name, artist_name, ...}
   → api/ returns playlist JSON to frontend
   → Frontend renders result page with playlist + play/save/edit controls

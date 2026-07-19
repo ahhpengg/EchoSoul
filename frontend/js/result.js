@@ -30,6 +30,7 @@
  * auth gate / premium page stashed in sessionStorage.spotify_profile.
  */
 import { callPy } from "./bridge.js";
+import { getGenreFilter } from "./genre_filter.js";
 import { playTracks } from "./playback.js";
 import {
   DEFAULT_ACCENT,
@@ -52,7 +53,7 @@ import { refreshSidebarPlaylists } from "./sidebar.js";
 const EMOTIONS = {
   happy: {
     heading: "You seem Happy!",
-    subtitle: "We have customized a playlist to match this vibe.",
+    subtitle: "We have customized a playlist to amplify your happiness.",
     title: EMOTION_DEFAULT_TITLES.happy,
     metaLead: "Curated for your joyful moments",
   },
@@ -70,17 +71,22 @@ const EMOTIONS = {
   },
   neutral: {
     heading: "You seem Neutral.",
-    subtitle: "We have customized a playlist to match this vibe.",
+    subtitle: "We have customized a playlist to match with your steady vibe.",
     title: EMOTION_DEFAULT_TITLES.neutral,
     metaLead: "A balanced, calm equilibrium to maintain your steady rhythm",
   },
   angry: {
     heading: "You seem Angry!",
-    subtitle: "We have customized a playlist to match this vibe.",
+    subtitle: "Explosive beats and fierce energy to fuel your fire.",
     title: EMOTION_DEFAULT_TITLES.angry,
     metaLead: "High-energy tracks for your intense moments",
   },
 };
+
+// Matches the backend default (recommender.DEFAULT_PLAYLIST_SIZE); explicit
+// because the genre re-roll passes it positionally, and the thin-pool note
+// compares against it.
+const GENERATED_PLAYLIST_SIZE = 20;
 
 // Everything the header/tracklist/edit-mode render from. `description` uses
 // "" for "none"; `playlistId` is the saved id (saved view, or set by a fresh
@@ -158,9 +164,12 @@ function renderHeader() {
 
 async function renderSavedPlaylist(playlistId) {
   // A saved playlist isn't a fresh detection: no mood banner, and the
-  // save-bookmark affordance makes no sense (it's already saved).
+  // save-bookmark affordance makes no sense (it's already saved). Neither
+  // does the thin-pool note — a saved playlist is a snapshot, not a fresh
+  // generation.
   document.getElementById("result-banner")?.remove();
   document.getElementById("save-playlist-btn")?.remove();
+  document.getElementById("genre-thin-note")?.remove();
   state.mode = "saved";
   state.free = isFreeUser();
   if (state.free) applyFreeMode();
@@ -247,6 +256,24 @@ function renderDetectionResult() {
   renderTracklist();
   wireSaveButton();
   wireEditButton();
+  renderThinNote();
+}
+
+// ---- Thin-pool notice (fresh-detection view only) ----------------------------
+
+// The session's genre filter (picked on the home page) can leave fewer
+// matching songs than the requested playlist size; this note between the
+// header and the track table explains the short list. It stays display:none —
+// reserving no space — unless that actually happened.
+function renderThinNote() {
+  const note = document.getElementById("genre-thin-note");
+  if (!note) return;
+  if (!getGenreFilter() || state.tracks.length >= GENERATED_PLAYLIST_SIZE) return;
+  document.getElementById("genre-thin-note-text").textContent =
+    `Only ${state.tracks.length} songs match this mood with your genre picks — ` +
+    "widen your genre selection on the home page for a fuller playlist.";
+  note.classList.remove("hidden");
+  note.classList.add("flex");
 }
 
 // ---- Tracklist + playback (shared by both views) -----------------------------

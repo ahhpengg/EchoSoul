@@ -51,8 +51,8 @@ def test_each_emotion_returns_full_playlist(emotion):
     assert len(playlist) == 25
 
 
-def test_default_size_is_25():
-    assert len(recommender.generate_playlist("happy", seed=1)) == 25
+def test_default_size_is_20():
+    assert len(recommender.generate_playlist("happy", seed=1)) == 20
 
 
 def test_result_dicts_have_documented_keys():
@@ -112,3 +112,60 @@ def test_count_candidates_is_positive():
 def test_count_candidates_unsupported_raises():
     with pytest.raises(ValueError):
         recommender.count_candidates("ennui")
+
+
+# --- genre filtering (docs/RECOMMENDATION.md "Genre filtering") ---------------
+
+
+def _canonical_genres_of(playlist: list[dict]) -> set[str]:
+    ids = [t["track_id"] for t in playlist]
+    marks = ", ".join(["%s"] * len(ids))
+    rows = connection.fetchall(
+        f"SELECT DISTINCT canonical_genre AS b FROM music WHERE track_id IN ({marks})",
+        tuple(ids),
+    )
+    return {r["b"] for r in rows}
+
+
+def test_genre_filter_only_returns_picked_buckets():
+    playlist = recommender.generate_playlist("happy", seed=3, genres=["Pop", "K-Pop"])
+    assert len(playlist) == 20
+    assert _canonical_genres_of(playlist) <= {"Pop", "K-Pop"}
+
+
+def test_genre_filter_is_deterministic_regardless_of_picker_order():
+    p1 = recommender.generate_playlist("happy", seed=7, genres=["Pop", "K-Pop"])
+    p2 = recommender.generate_playlist("happy", seed=7, genres=["K-Pop", "Pop", "K-Pop"])
+    assert [t["track_id"] for t in p1] == [t["track_id"] for t in p2]
+
+
+def test_thin_bucket_yields_short_but_pure_playlist():
+    # K-Pop x sad is the catalogue's one thin combo (docs/RECOMMENDATION.md);
+    # policy is a shorter playlist, never a top-up from other genres.
+    playlist = recommender.generate_playlist("sad", seed=1, genres=["K-Pop"])
+    assert 0 < len(playlist) < recommender.DEFAULT_PLAYLIST_SIZE
+    assert _canonical_genres_of(playlist) == {"K-Pop"}
+
+
+def test_unknown_bucket_matches_nothing():
+    assert recommender.generate_playlist("happy", seed=1, genres=["Polka Fusion"]) == []
+
+
+def test_genre_filtered_tracks_still_satisfy_the_rule():
+    rule = connection.fetchone(
+        "SELECT valence_min, valence_max, energy_min, energy_max, "
+        "       tempo_min, tempo_max "
+        "FROM emotion_music_mapping WHERE emotion = %s",
+        ("angry",),
+    )
+    for track in recommender.generate_playlist("angry", size=25, seed=7, genres=["Metal"]):
+        assert rule["valence_min"] <= track["valence"] <= rule["valence_max"]
+        assert rule["energy_min"] <= track["energy"] <= rule["energy_max"]
+        assert rule["tempo_min"] <= track["tempo"] <= rule["tempo_max"]
+
+
+def test_list_genre_buckets_matches_seed_vocabulary():
+    buckets = recommender.list_genre_buckets()
+    assert len(buckets) == 23
+    assert buckets == sorted(buckets)
+    assert {"Pop", "SEA Pop", "C-Pop / Mandopop", "K-Pop"} <= set(buckets)

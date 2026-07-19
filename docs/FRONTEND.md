@@ -441,7 +441,7 @@ it navigates to result or error. As-built flow:
   - `status === "ok"` → `last_emotion = result.emotion`, continue.
 - **Manual path** (`"manual"`): the emotion is already in
   `sessionStorage.last_emotion` (mood card / home chip); inference is skipped.
-- **Both**: `callPy("generate_playlist", emotion)` (backend default size, 25)
+- **Both**: `callPy("generate_playlist", emotion)` (backend default size, 20)
   → `current_playlist` (JSON) + `playlist_emotion` → result.html. An empty
   list maps to `error_code = "playlist_failed"`; a rejected bridge promise
   (backend raised / timed out) maps to `"unexpected"`.
@@ -573,6 +573,51 @@ const ERROR_MESSAGES = {
 As-built details: the keys are read, not consumed, so refreshing the page
 keeps the message; opened with no `error_code` at all (design preview) the
 static prototype copy stays. "Back to Home Page" is a plain `<a href>`.
+
+---
+
+## Genre filter (js/genre_filter.js)
+
+Owner-requested (2026-07-18): the user can restrict generated playlists to
+preferred genres. Backend design in `docs/RECOMMENDATION.md` § "Genre
+filtering"; the UI is the **hybrid** placement the owner approved — no extra
+step in the scan flow, with clarity-first labelling everywhere the state
+surfaces.
+
+- **State:** `sessionStorage.genre_filter` = JSON array of the canonical
+  buckets kept checked, or **absent while all are checked** (the default —
+  identical to no filter; `loading.js` then passes `null` and the backend runs
+  the unfiltered path). Sticky for the session: every generation, camera or
+  manual, reads it.
+- **Picker modal** (`openGenrePicker(onApply)`): one checkbox tile per bucket
+  (`get_genre_buckets` — vocabulary single-sourced from the DB, cached per
+  page; long names wrap, never truncate), all checked by default, plus a
+  **"Select all" tickbox** (checked / blank / indeterminate mirroring the whole
+  selection; ticking selects everything, unticking clears the board) and an
+  `N of 23 selected` counter. Zero-checked is allowed only *while choosing* —
+  untick-all → pick a few is the natural path to a small selection — and the
+  owner's **at-least-one floor is enforced at Apply**, which stays disabled
+  until something is checked. An explainer sentence at the top says exactly
+  what the choice does and that it persists — the owner's "understandable on
+  first approach" requirement. Esc/backdrop close (nothing destructive). Apply
+  persists and fires `onApply` only when the selection actually changed.
+- **Home chip** (`#genre-filter-chip`, its own centered section between the
+  scanner hero and the manual mood picker — it applies to both paths): label
+  mirrors the state ("Playlist genres: All" / "…: Pop & K-Pop" /
+  "…: 5 selected") and the chip tints `border-primary` while a filter is live,
+  so non-default state is never invisible. Click opens the picker (pre-scan
+  entry point).
+- **Result page: no genre UI** (owner decision, 2026-07-18 — an earlier
+  refine/re-roll row was built and then removed as unnecessary). The home chip
+  is the single place to change the selection; the result page behaves as
+  before, with one exception:
+- **Thin pools** (`#genre-thin-note`, fresh-detection view only; removed in
+  the saved view): when the session's filter left the playlist shorter than
+  the requested 25, an info note **between the playlist header and the track
+  table** explains why and points back to the home page ("Only N songs match
+  this mood with your genre picks — widen your genre selection on the home
+  page…"). It stays `display:none` — reserving no space — unless triggered.
+  No per-bucket counts anywhere — owner decision.
 
 ---
 

@@ -67,6 +67,15 @@
         </div>
       </div>
 
+      <!-- Thin-pool notice: only when the session's genre filter left fewer
+           songs than the requested playlist size (result.js, fresh view).
+           display:none while hidden, so it reserves no space between the
+           header and the table in the normal case. -->
+      <p id="genre-thin-note" class="hidden -mt-4 mb-6 items-center gap-2 text-label-md font-label-md text-on-surface-variant">
+        <span class="material-symbols-outlined text-[18px]">info</span>
+        <span id="genre-thin-note-text"></span>
+      </p>
+
       <!-- Tracklist Table -->
       <div class="w-full rounded-2xl bg-surface-container border border-white/5 overflow-hidden">
         <div class="track-grid px-4 md:px-6 py-4 border-b border-white/5 text-label-sm font-label-sm text-outline-variant uppercase tracking-wider sticky top-0 bg-surface-container/95 backdrop-blur-sm z-10">

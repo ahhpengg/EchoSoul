@@ -17,10 +17,15 @@
  * multi-MB of PNG must not outlive the one call that needs it.
  */
 import { callPy } from "./bridge.js";
+import { getGenreFilter } from "./genre_filter.js";
 
 // Keep the analyzing animation up long enough to register; finishing in a
 // sub-second flash looks like a glitch. Measured from page load to navigation.
 const MIN_DISPLAY_MS = 1500;
+
+// Matches the backend default (recommender.DEFAULT_PLAYLIST_SIZE); explicit
+// here because the genre filter is the bridge call's third positional arg.
+const PLAYLIST_SIZE = 20;
 
 // Progress-bar stage caps (%). A bridge call is one opaque await — there is no
 // real per-call percentage — so the bar glides toward the running stage's cap
@@ -119,7 +124,9 @@ function fail(code, detected) {
 
     setStatus("Building your playlist...", "Matching songs to your mood");
     progressTo(PLAYLIST_CAP, PLAYLIST_CREEP_MS);
-    const playlist = await callPy("generate_playlist", emotion);
+    // The session's genre filter (home chip / result-page picker) applies to
+    // every generation; null = all genres = the unfiltered backend path.
+    const playlist = await callPy("generate_playlist", emotion, PLAYLIST_SIZE, getGenreFilter());
     if (!Array.isArray(playlist) || !playlist.length) {
       await fail("playlist_failed");
       return;

@@ -186,10 +186,10 @@ A quick checklist the developer runs locally before pushing significant changes.
 [ ] Home renders: sidebar, profile chip, latest-playlist showcase (if any saved)
 [ ] Click "Take Photo": webcam preview appears with the oval face guide
 [ ] Guide turns green with exactly one face visible; shutter enables
-[ ] Capture → "Use this photo": loading screen → result page with 25 tracks
+[ ] Capture → "Use this photo": loading screen → result page with 20 tracks
 [ ] Play-all: audio plays in the bottom player (Premium account)
 [ ] Save the playlist: toast shown, row appears in sidebar immediately
-[ ] Mood page: 5 emotion cards; pick one → result page with 25 tracks
+[ ] Mood page: 5 emotion cards; pick one → result page with 20 tracks
 [ ] Sidebar kebab → delete a saved playlist: two-step confirm, row gone
 [ ] Log out via the profile chip: returns to login page
 ```
@@ -239,7 +239,7 @@ Record failures inline as they happen; fix and re-run the failing pass before ti
 [ ] Capture: frame freezes (unmirrored capture is expected), Retake / "Use this photo" shown
 [ ] Retake → live preview returns
 [ ] "Use this photo" → loading page (progress bar animates) → result page: emotion banner
-    matches your expression + 25 tracks (try happy, then neutral)
+    matches your expression + 20 tracks (try happy, then neutral)
 [ ] Back (Alt+Left / mouse back) from result → photo page, never the loading page
 [ ] Very dark frame (cover the lens): capture → error page with the dark-image message →
     back-to-home works
@@ -274,7 +274,7 @@ Record failures inline as they happen; fix and re-run the failing pass before ti
 ```
 [ ] Save from result: playlist named with the per-emotion default ("Happy Playlist") and
     default description; toast; bookmark icon fills; save button stays disabled; sidebar
-    row appears without a reload, subtitle "25 songs · <today's date>"
+    row appears without a reload, subtitle "20 songs · <today's date>"
 [ ] Edit on fresh result BEFORE saving: change title + description, remove a track →
     header updates; then Save → sidebar row shows the custom title
 [ ] Edit AFTER saving (same page): Done persists — reopen from sidebar, changes are there
